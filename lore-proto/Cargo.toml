@@ -1,0 +1,16 @@
+[package]
+name = "lore-proto"
+# Crate version is used for proto-artifactory workflow
+version = "0.1.60"
+edition = "2024"
+publish = false
+
+[dependencies]
+lore-base = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }

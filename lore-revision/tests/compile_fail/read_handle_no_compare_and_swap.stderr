@@ -1,0 +1,9 @@
+error[E0599]: no method named `compare_and_swap` found for struct `ReadHandle<'a>` in the current scope
+  --> tests/compile_fail/read_handle_no_compare_and_swap.rs:10:10
+   |
+ 9 |       let _ = handle
+   |  _____________-
+10 | |         .compare_and_swap(todo!(), todo!(), todo!(), todo!(), todo!())
+   | |         -^^^^^^^^^^^^^^^^ method not found in `ReadHandle<'_>`
+   | |_________|
+   |

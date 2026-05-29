@@ -1,0 +1,48 @@
+# Lore Server Configuration Example: Consul Topology Discovery
+# =====================================================================
+# This configuration demonstrates using Consul for dynamic topology
+# discovery in multi-node deployments. Peers are discovered automatically
+# through Consul's service catalog.
+#
+# Prerequisites:
+# - Consul cluster running and accessible
+# - Lore server registered as a Consul service
+
+# ---------------------------------------------------------------------
+# Topology Configuration: Consul Service Discovery
+# ---------------------------------------------------------------------
+# Consul topology automatically discovers peer nodes registered with
+# the same service name in the Consul service catalog.
+
+[topology]
+provider = "consul"
+
+# Consul plugin configuration
+[plugins.consul]
+address = "http://consul.yourdomain.com:8500"
+
+# Service name to look up in Consul
+# All Lore servers should register with this same service name
+service_name = "urc-server"
+
+# Optional: Address to ignore when discovering peers
+# Typically set to this node's IP to avoid self-connection
+# Can be left empty and set via environment variable URC__PLUGINS__CONSUL__IGNORE_ADDRESS
+ignore_address = ""
+
+# How often to poll Consul for peer updates (seconds)
+# Lower values = faster peer discovery, higher load on Consul
+poll_interval_secs = 30
+
+# ---------------------------------------------------------------------
+# Environment Variable Overrides
+# ---------------------------------------------------------------------
+# All settings can be overridden via environment variables using the
+# URC__ prefix and __ separator for nested keys:
+#
+# URC__PLUGINS__CONSUL__ADDRESS=http://consul:8500
+# URC__PLUGINS__CONSUL__SERVICE_NAME=urc-server
+# URC__PLUGINS__CONSUL__IGNORE_ADDRESS=10.0.1.5
+# URC__PLUGINS__CONSUL__POLL_INTERVAL_SECS=60
+#
+# URC__TOPOLOGY__PROVIDER=consul

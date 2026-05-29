@@ -1,0 +1,64 @@
+[graph]
+all-features = true
+
+[output]
+feature-depth = 1
+
+[advisories]
+ignore = []
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "Zlib",
+    "CDLA-Permissive-2.0",
+]
+
+[[licenses.clarify]]
+# cargo-deny was not able to parse the LICENCE file of `ring`, so we add a clarification here.
+# The hash means deny will complain if the license changes and will need re-validating.
+crate = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 }
+]
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "allow" # we're in too deep to fix this in one step
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+
+# List of crates to deny
+deny = [
+    { crate = "openssl-sys", reason = "requires flaky native build and library, use rustls instead" },
+    { crate = "openssl", reason = "requires flaky native build and library, use rustls instead" },
+    { crate = "aws-lc-rs", reason = "pulls in aws-lc-sys, use ring instead" },
+    { crate = "aws-lc-sys", reason = "requires cmake and nasm and other unwanted dependencies on Windows, use ring instead" },
+]
+
+[[bans.features]]
+crate = "grpcio"
+deny = ["openssl"]
+
+[[bans.features]]
+crate = "tokio"
+deny = ["tracing"]
+reason = "Tokio tracing increases future sizes and results in large increase in client runtime memory usage"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

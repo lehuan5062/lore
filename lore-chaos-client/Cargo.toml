@@ -1,0 +1,26 @@
+[package]
+name = "lore-chaos-client"
+edition = "2024"
+version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["std"] }
+serde_json = { workspace = true }
+clap = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+rand_distr = "0.5.1"
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+lore = { workspace = true }
+
+[[bin]]
+name = "lore_chaos_client"
+path = "src/main.rs"
+
+[lib]
+name = "lore_chaos_client"
+path = "src/lib.rs"

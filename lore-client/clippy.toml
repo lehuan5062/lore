@@ -1,0 +1,6 @@
+disallowed-macros = [
+    { path = "std::print", reason = "Use crate::print instead of std::print" },
+    { path = "std::println", reason = "Use crate::println instead of std::println" },
+    { path = "std::eprint", reason = "Use crate::eprint instead of std::eprint" },
+    { path = "std::eprintln", reason = "Use crate::eprintln instead of std::eprintln" }
+]

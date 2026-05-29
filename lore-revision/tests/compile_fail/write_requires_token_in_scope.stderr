@@ -1,0 +1,5 @@
+error[E0425]: cannot find value `token` in this scope
+  --> tests/compile_fail/write_requires_token_in_scope.rs:10:39
+   |
+10 |     let _ = repo.write_mutable_store(&token);
+   |                                       ^^^^^ not found in this scope

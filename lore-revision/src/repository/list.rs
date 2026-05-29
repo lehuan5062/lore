@@ -1,0 +1,58 @@
+// SPDX-FileCopyrightText: 2026 Epic Games, Inc.
+// SPDX-License-Identifier: MIT
+use lore_error_set::prelude::*;
+use serde::Deserialize;
+use serde::Serialize;
+
+use super::RepositoryError;
+use crate::event;
+use crate::interface::LoreString;
+use crate::lore::RepositoryId;
+use crate::lore_debug;
+use crate::protocol;
+
+#[repr(C)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoreRepositoryListEntryEventData {
+    pub id: RepositoryId,
+    pub name: LoreString,
+}
+
+pub async fn list(url: &str, identity: &str) -> Result<(), RepositoryError> {
+    lore_debug!("Repository list at {url} using identity \"{identity}\"");
+    let connection = protocol::connect(
+        url,
+        identity,
+        RepositoryId::default(), /* No repository */
+    )
+    .await
+    .forward_with::<RepositoryError, _>(|| {
+        format!("Failed to connect to remote repository {url}")
+    })?;
+
+    let repository_service = connection
+        .repository()
+        .await
+        .forward_with::<RepositoryError, _>(|| {
+            format!("Failed to connect to remote repository {url}")
+        })?;
+
+    let list = repository_service
+        .list()
+        .await
+        .forward::<RepositoryError>("Failed to list repositories")?;
+
+    lore_debug!("Got repository list with {} entries", list.len());
+
+    for entry in list {
+        lore_debug!("{:?}", entry);
+        event::LoreEvent::RepositoryListEntry(LoreRepositoryListEntryEventData {
+            id: entry.id,
+            name: entry.name.into(),
+        })
+        .send();
+    }
+
+    Ok(())
+}

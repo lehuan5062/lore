@@ -1,0 +1,13 @@
+disallowed-methods = [
+    { path = "tokio::runtime::Handle::spawn", reason = "This will spawn a task without the ExecutionContext set. Use urc_spawn!(..) instead. Or add #[allow(clippy::disallowed_methods)] to suppress this warning." },
+    { path = "tokio::spawn", reason = "This will spawn a task without the ExecutionContext set. Use urc_spawn!(..) instead. Or add #[allow(clippy::disallowed_methods)] to suppress this warning." },
+    { path = "tokio::task::join_set::JoinSet::spawn", reason = "This will spawn a task without the ExecutionContext set. Use JoinSetExt::spawn_context(..) instead. Or add #[allow(clippy::disallowed_methods)] to suppress this warning." },
+    { path = "std::fs::write", reason = "Repository-level filesystem writes must go through a RepositoryWriteToken-gated helper. Add #[allow(clippy::disallowed_methods)] at module scope if this is an authorized writer." },
+    { path = "std::fs::rename", reason = "Repository-level filesystem writes must go through a RepositoryWriteToken-gated helper. Add #[allow(clippy::disallowed_methods)] at module scope if this is an authorized writer." },
+    { path = "std::fs::remove_file", reason = "Repository-level filesystem writes must go through a RepositoryWriteToken-gated helper. Add #[allow(clippy::disallowed_methods)] at module scope if this is an authorized writer." },
+    { path = "std::fs::remove_dir", reason = "Repository-level filesystem writes must go through a RepositoryWriteToken-gated helper. Add #[allow(clippy::disallowed_methods)] at module scope if this is an authorized writer." },
+    { path = "std::fs::remove_dir_all", reason = "Repository-level filesystem writes must go through a RepositoryWriteToken-gated helper. Add #[allow(clippy::disallowed_methods)] at module scope if this is an authorized writer." },
+    { path = "tokio::fs::write", reason = "Repository-level filesystem writes must go through a RepositoryWriteToken-gated helper. Add #[allow(clippy::disallowed_methods)] at module scope if this is an authorized writer." },
+    { path = "tokio::fs::rename", reason = "Repository-level filesystem writes must go through a RepositoryWriteToken-gated helper. Add #[allow(clippy::disallowed_methods)] at module scope if this is an authorized writer." }
+]
+future-size-threshold = 7_000

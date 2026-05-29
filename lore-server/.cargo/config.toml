@@ -1,0 +1,4 @@
+# This is needed to enable tokio runtime metrics: https://github.com/tokio-rs/tokio-metrics/blob/main/README.md
+[build]
+rustflags = ["--cfg", "tokio_unstable"]
+rustdocflags = ["--cfg", "tokio_unstable"]

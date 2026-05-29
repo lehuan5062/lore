@@ -1,0 +1,127 @@
+# =============================================================================
+# Lore Server Default Configuration
+# =============================================================================
+# This file contains the default settings for all environments.
+# Environment-specific configs (ci.toml, gamedev.toml, etc.) override these.
+
+[server]
+connection_close_timeout_seconds = 5
+runtime_shutdown_timeout_seconds = 25
+
+# public facing server settings
+[server.quic]
+enabled = true
+host = "0.0.0.0"
+port = 41337
+# we verify clients via their Auth token
+verify_client_certs = false
+idle_timeout = 30_000
+keep_alive = 500
+max_bidi_streams = 8
+num_listeners = 10
+transport_bits_per_second = 1_073_741_824  # 1 gbit/s
+transport_rtt = 100  # 100 ms
+handler_timeout_seconds = 50
+
+# internal replication endpoint — opt in per environment, mTLS required
+[server.quic_internal]
+enabled = false
+host = "0.0.0.0"
+port = 41340
+idle_timeout = 30_000
+keep_alive = 500
+max_bidi_streams = 8
+num_listeners = 10
+transport_bits_per_second = 10_737_418_240  # 10 gbit/s
+transport_rtt = 100  # 100 ms
+handler_timeout_seconds = 50
+
+[server.grpc]
+enabled = true
+host = "0.0.0.0"
+port = 41337
+request_handler_timeout_seconds = 50
+
+[server.grpc_public_services.lock_service]
+max_encoding_message_size = 16777216
+
+# server-to-server replication endpoint — opt in per environment, mTLS required
+[server.replication]
+enabled = false
+host = "0.0.0.0"
+port = 41340
+request_handler_timeout_seconds = 50
+
+[server.http]
+enabled = true
+host = "0.0.0.0"
+port = 41339
+max_file_size = 10_485_760 # 10MB
+request_timeout_seconds = 300
+request_body_timeout_seconds = 3600
+available_interval_seconds = 30
+available_timeout_seconds = 5
+store_health_check = false
+
+# =============================================================================
+# Store Configuration
+# =============================================================================
+
+[immutable_store]
+mode = "local"
+
+[mutable_store]
+mode = "local"
+
+[lock_store]
+mode = "local"
+
+# =============================================================================
+# Local Store Configuration (Predefined Type)
+# =============================================================================
+
+[immutable_store.local]
+path = "./"
+flush_delay_seconds = 10
+
+[mutable_store.local]
+path = "./"
+flush_delay_seconds = 10
+
+# =============================================================================
+# Tokio Runtime Configuration
+# =============================================================================
+
+[tokio]
+max_blocking_threads = 512
+
+# =============================================================================
+# Telemetry Configuration
+# =============================================================================
+
+[telemetry.logger]
+enable_otlp = false
+format = "json"
+output = "stdout"
+
+[telemetry.metrics]
+export_interval_millis = 30000
+sample_interval_millis = 10000
+
+[telemetry.traces]
+sample_rate = 0.05
+sample_rate_low_tier = 0.001
+
+# =============================================================================
+# Notification Configuration
+# =============================================================================
+
+[notification]
+mode = "local"
+
+# =============================================================================
+# Other Features Configuration
+# =============================================================================
+
+[feature]
+history_step_size = 100

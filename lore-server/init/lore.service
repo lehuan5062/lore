@@ -1,0 +1,14 @@
+[Unit]
+Description=Lore Server
+After=network.target
+
+[Service]
+Environment=RUST_LOG=info
+Environment=LORE_ENV="dev"
+Environment=LORE_CONFIG_PATH="/etc/lore/config"
+ExecStart=/usr/local/bin/loreserver
+LimitNOFILE=1048576
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

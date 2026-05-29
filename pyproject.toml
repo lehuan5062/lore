@@ -1,0 +1,26 @@
+[project]
+name = "urc"
+version = "0.1.0"
+description = "URC tests"
+readme = "README.md"
+classifiers = ["Private :: Do Not Upload"]
+requires-python = ">=3.13"
+dependencies = [
+    "pytest>=8.4.2",
+    "pytest-json-ctrf>=0.3.6",
+    "pytest-xdist>=3.8.0",
+]
+
+[dependency-groups]
+dev = ["ruff>=0.9.6", "pyright>=1.1.396"]
+
+[tool.ruff]
+target-version = "py313"
+extend-exclude = [".urc", ".lore"]
+
+[tool.pytest.ini_options]
+addopts = "--dist loadgroup --tb=short -rsxX"
+markers = [
+    "smoke: marks as smoke test",
+    "slow: marks as a slow running test",
+]

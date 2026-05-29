@@ -1,0 +1,11 @@
+{
+    "name": "@ucs/urc-proto",
+    "version": "0.1.60",
+    "description": "Proto files package",
+    "files": [
+        "proto/*"
+    ],
+    "publishConfig": {
+        "registry": "https://artifacts.ol.epicgames.net/artifactory/api/npm/npm-internal/"
+    }
+}

@@ -1,0 +1,536 @@
+// SPDX-FileCopyrightText: 2026 Epic Games, Inc.
+// SPDX-License-Identifier: MIT
+//! Hook context for passing operation details to hooks.
+//!
+//! This module defines [`HookContext`], which provides hooks with read-only
+//! operation metadata:
+//!
+//! - Correlation ID for request tracing
+//! - Hook point that triggered the hook
+//! - Repository context
+//! - Optional user, branch, revision, and metadata
+//!
+//! The context is immutable once created. Pre hooks can reject requests via
+//! their return value, and post hooks only act asynchronously on read-only
+//! information.
+
+use std::collections::HashMap;
+
+use lore_base::types::Hash;
+use lore_revision::lore::BranchId;
+use lore_revision::lore::RepositoryId;
+
+use crate::hooks::traits::HookPoint;
+
+/// Context data passed to hooks during execution.
+///
+/// The context provides immutable operation details to hooks. All fields are
+/// set when the context is created via the builder and cannot be modified.
+///
+/// # Fields
+///
+/// - `correlation_id` - Unique request identifier for audit trail
+/// - `hook_point` - The extension point that triggered this hook
+/// - `repository` - The repository context for the operation
+/// - `user` - The user performing the operation (optional)
+/// - `branch` - The target branch (optional)
+/// - `revision` - The target revision (optional)
+/// - `revision_number` - The revision number (optional, set after push)
+/// - `metadata` - Arbitrary key-value metadata
+///
+/// # Thread Safety
+///
+/// `HookContext` is `Send + Sync` and can be safely shared across threads.
+/// Since all fields are immutable, no synchronization is required.
+///
+/// # Hook Execution Model
+///
+/// - **Pre hooks**: Can read the context and reject requests via return value
+/// - **Post hooks**: Run asynchronously with read-only access to the context
+///
+/// # Example
+///
+/// ```
+/// use lore_server::hooks::{HookContext, HookPoint};
+/// use lore_revision::lore::RepositoryId;
+///
+/// // Create context for a branch push operation
+/// let ctx = HookContext::builder()
+///     .correlation_id("abc-123")
+///     .hook_point(HookPoint::BranchPush)
+///     .repository(RepositoryId::default())
+///     .user("user@example.com")
+///     .build();
+///
+/// // Read fields
+/// assert_eq!(ctx.correlation_id(), "abc-123");
+/// assert_eq!(ctx.hook_point(), HookPoint::BranchPush);
+/// assert_eq!(ctx.user(), Some("user@example.com"));
+///
+/// // Get metadata
+/// assert!(ctx.get_metadata("key").is_none());
+/// ```
+#[derive(Clone)]
+pub struct HookContext {
+    correlation_id: String,
+    hook_point: HookPoint,
+    repository: RepositoryId,
+    user: Option<String>,
+    branch: Option<BranchId>,
+    revision: Option<Hash>,
+    revision_number: Option<u64>,
+    metadata: HashMap<String, String>,
+}
+
+impl HookContext {
+    /// Creates a new `HookContextBuilder` for constructing a context.
+    pub fn builder() -> HookContextBuilder {
+        HookContextBuilder::new()
+    }
+
+    /// Returns the correlation ID for this operation.
+    ///
+    /// The correlation ID is a unique identifier for the request that can be
+    /// used to trace the operation across services and log entries.
+    #[inline]
+    pub fn correlation_id(&self) -> &str {
+        &self.correlation_id
+    }
+
+    /// Returns the hook point that triggered this hook execution.
+    #[inline]
+    pub fn hook_point(&self) -> HookPoint {
+        self.hook_point
+    }
+
+    /// Returns the repository context for this operation.
+    #[inline]
+    pub fn repository(&self) -> RepositoryId {
+        self.repository
+    }
+
+    /// Returns the user for this operation, if set.
+    #[inline]
+    pub fn user(&self) -> Option<&str> {
+        self.user.as_deref()
+    }
+
+    /// Returns the target branch for this operation, if set.
+    #[inline]
+    pub fn branch(&self) -> Option<BranchId> {
+        self.branch
+    }
+
+    /// Returns the target revision for this operation, if set.
+    #[inline]
+    pub fn revision(&self) -> Option<Hash> {
+        self.revision
+    }
+
+    /// Returns the revision number for this operation, if set.
+    #[inline]
+    pub fn revision_number(&self) -> Option<u64> {
+        self.revision_number
+    }
+
+    /// Sets the revision number.
+    ///
+    /// This allows handlers to set the revision number after the operation
+    /// completes but before passing the context to post-hooks.
+    #[inline]
+    pub fn set_revision_number(&mut self, revision_number: u64) {
+        self.revision_number = Some(revision_number);
+    }
+
+    /// Returns a specific metadata value.
+    ///
+    /// Returns `None` if the key doesn't exist.
+    #[inline]
+    pub fn get_metadata(&self, key: &str) -> Option<&str> {
+        self.metadata.get(key).map(|s| s.as_str())
+    }
+
+    /// Returns all metadata as a reference to the internal `HashMap`.
+    #[inline]
+    pub fn metadata(&self) -> &HashMap<String, String> {
+        &self.metadata
+    }
+}
+
+impl std::fmt::Debug for HookContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HookContext")
+            .field("correlation_id", &self.correlation_id)
+            .field("hook_point", &self.hook_point)
+            .field("repository", &self.repository)
+            .field("user", &self.user)
+            .field("branch", &self.branch)
+            .field("revision", &self.revision)
+            .field("revision_number", &self.revision_number)
+            .field("metadata", &self.metadata)
+            .finish()
+    }
+}
+
+/// Builder for constructing [`HookContext`] instances.
+///
+/// # Example
+///
+/// ```
+/// use lore_server::hooks::{HookContext, HookPoint};
+/// use lore_revision::lore::{BranchId, RepositoryId};
+/// use lore_base::types::Hash;
+///
+/// let ctx = HookContext::builder()
+///     .correlation_id("abc-123")
+///     .hook_point(HookPoint::BranchPush)
+///     .repository(RepositoryId::default())
+///     .branch(BranchId::default())
+///     .user("user@example.com")
+///     .revision(Hash::default())
+///     .metadata("key", "value")
+///     .build();
+///
+/// assert_eq!(ctx.correlation_id(), "abc-123");
+/// assert!(ctx.branch().is_some());
+/// assert!(ctx.revision().is_some());
+/// assert_eq!(ctx.get_metadata("key"), Some("value"));
+/// ```
+#[derive(Default)]
+pub struct HookContextBuilder {
+    correlation_id: Option<String>,
+    hook_point: Option<HookPoint>,
+    repository: Option<RepositoryId>,
+    user: Option<String>,
+    branch: Option<BranchId>,
+    revision: Option<Hash>,
+    revision_number: Option<u64>,
+    metadata: HashMap<String, String>,
+}
+
+impl HookContextBuilder {
+    /// Creates a new builder with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the correlation ID.
+    ///
+    /// This is required before calling `build()`.
+    pub fn correlation_id(mut self, correlation_id: impl Into<String>) -> Self {
+        self.correlation_id = Some(correlation_id.into());
+        self
+    }
+
+    /// Sets the hook point.
+    ///
+    /// This is required before calling `build()`.
+    pub fn hook_point(mut self, hook_point: HookPoint) -> Self {
+        self.hook_point = Some(hook_point);
+        self
+    }
+
+    /// Sets the repository context.
+    ///
+    /// This is required before calling `build()`.
+    pub fn repository(mut self, repository: RepositoryId) -> Self {
+        self.repository = Some(repository);
+        self
+    }
+
+    /// Sets the user.
+    pub fn user(mut self, user: impl Into<String>) -> Self {
+        self.user = Some(user.into());
+        self
+    }
+
+    /// Sets the branch context.
+    pub fn branch(mut self, branch: BranchId) -> Self {
+        self.branch = Some(branch);
+        self
+    }
+
+    /// Sets the revision hash.
+    pub fn revision(mut self, revision: Hash) -> Self {
+        self.revision = Some(revision);
+        self
+    }
+
+    /// Sets the revision number.
+    pub fn revision_number(mut self, revision_number: u64) -> Self {
+        self.revision_number = Some(revision_number);
+        self
+    }
+
+    /// Adds a metadata entry.
+    pub fn metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.insert(key.into(), value.into());
+        self
+    }
+
+    /// Builds the [`HookContext`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `correlation_id`, `hook_point`, or `repository` is not set.
+    pub fn build(self) -> HookContext {
+        self.try_build().unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Tries to build the [`HookContext`], returning an error if required fields are missing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if `correlation_id`, `hook_point`, or `repository` is not set.
+    pub fn try_build(self) -> Result<HookContext, &'static str> {
+        let correlation_id = self
+            .correlation_id
+            .ok_or("correlation_id is required for HookContext")?;
+        let hook_point = self
+            .hook_point
+            .ok_or("hook_point is required for HookContext")?;
+        let repository = self
+            .repository
+            .ok_or("repository is required for HookContext")?;
+
+        Ok(HookContext {
+            correlation_id,
+            hook_point,
+            repository,
+            user: self.user,
+            branch: self.branch,
+            revision: self.revision,
+            revision_number: self.revision_number,
+            metadata: self.metadata,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use lore_base::types::Context;
+
+    use super::*;
+
+    fn create_test_context() -> HookContext {
+        HookContext::builder()
+            .correlation_id("test-correlation-123")
+            .hook_point(HookPoint::BranchPush)
+            .repository(RepositoryId::default())
+            .build()
+    }
+
+    #[test]
+    fn test_context_immutable_fields() {
+        let ctx = HookContext::builder()
+            .correlation_id("abc-123")
+            .hook_point(HookPoint::BranchCreate)
+            .repository(RepositoryId::default())
+            .build();
+
+        assert_eq!(ctx.correlation_id(), "abc-123");
+        assert_eq!(ctx.hook_point(), HookPoint::BranchCreate);
+    }
+
+    #[test]
+    fn test_context_optional_user() {
+        // Without user
+        let ctx = create_test_context();
+        assert!(ctx.user().is_none());
+
+        // With user
+        let ctx = HookContext::builder()
+            .correlation_id("test")
+            .hook_point(HookPoint::BranchPush)
+            .repository(RepositoryId::default())
+            .user("user@example.com")
+            .build();
+        assert_eq!(ctx.user(), Some("user@example.com"));
+    }
+
+    #[test]
+    fn test_context_optional_branch() {
+        let ctx = create_test_context();
+        assert!(ctx.branch().is_none());
+
+        let branch = Context::default();
+        let ctx = HookContext::builder()
+            .correlation_id("test")
+            .hook_point(HookPoint::BranchPush)
+            .repository(RepositoryId::default())
+            .branch(branch)
+            .build();
+        assert_eq!(ctx.branch(), Some(branch));
+    }
+
+    #[test]
+    fn test_context_optional_revision() {
+        let ctx = create_test_context();
+        assert!(ctx.revision().is_none());
+
+        let revision = Hash::default();
+        let ctx = HookContext::builder()
+            .correlation_id("test")
+            .hook_point(HookPoint::BranchPush)
+            .repository(RepositoryId::default())
+            .revision(revision)
+            .build();
+        assert_eq!(ctx.revision(), Some(revision));
+    }
+
+    #[test]
+    fn test_context_optional_revision_number() {
+        let ctx = create_test_context();
+        assert!(ctx.revision_number().is_none());
+
+        let ctx = HookContext::builder()
+            .correlation_id("test")
+            .hook_point(HookPoint::BranchPush)
+            .repository(RepositoryId::default())
+            .revision_number(42)
+            .build();
+        assert_eq!(ctx.revision_number(), Some(42));
+    }
+
+    #[test]
+    fn test_context_set_revision_number() {
+        let mut ctx = create_test_context();
+        assert!(ctx.revision_number().is_none());
+
+        ctx.set_revision_number(99);
+        assert_eq!(ctx.revision_number(), Some(99));
+    }
+
+    #[test]
+    fn test_context_metadata() {
+        let ctx = create_test_context();
+        assert!(ctx.get_metadata("key1").is_none());
+        assert!(ctx.metadata().is_empty());
+
+        let ctx = HookContext::builder()
+            .correlation_id("test")
+            .hook_point(HookPoint::BranchPush)
+            .repository(RepositoryId::default())
+            .metadata("key1", "value1")
+            .metadata("key2", "value2")
+            .build();
+
+        assert_eq!(ctx.get_metadata("key1"), Some("value1"));
+        assert_eq!(ctx.get_metadata("key2"), Some("value2"));
+        assert_eq!(ctx.metadata().len(), 2);
+    }
+
+    #[test]
+    fn test_context_builder_with_all_fields() {
+        let ctx = HookContext::builder()
+            .correlation_id("full-test")
+            .hook_point(HookPoint::BranchPush)
+            .repository(RepositoryId::default())
+            .user("test@example.com")
+            .branch(Context::default())
+            .revision(Hash::default())
+            .metadata("key1", "value1")
+            .metadata("key2", "value2")
+            .build();
+
+        assert_eq!(ctx.correlation_id(), "full-test");
+        assert_eq!(ctx.hook_point(), HookPoint::BranchPush);
+        assert_eq!(ctx.user(), Some("test@example.com"));
+        assert!(ctx.branch().is_some());
+        assert!(ctx.revision().is_some());
+        assert_eq!(ctx.get_metadata("key1"), Some("value1"));
+        assert_eq!(ctx.get_metadata("key2"), Some("value2"));
+    }
+
+    #[test]
+    fn test_context_builder_try_build_success() {
+        let result = HookContext::builder()
+            .correlation_id("test")
+            .hook_point(HookPoint::BranchPush)
+            .repository(RepositoryId::default())
+            .try_build();
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_context_builder_try_build_missing_correlation_id() {
+        let result = HookContext::builder()
+            .hook_point(HookPoint::BranchPush)
+            .repository(RepositoryId::default())
+            .try_build();
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("correlation_id"));
+    }
+
+    #[test]
+    fn test_context_builder_try_build_missing_hook_point() {
+        let result = HookContext::builder()
+            .correlation_id("test")
+            .repository(RepositoryId::default())
+            .try_build();
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("hook_point"));
+    }
+
+    #[test]
+    fn test_context_builder_try_build_missing_repository() {
+        let result = HookContext::builder()
+            .correlation_id("test")
+            .hook_point(HookPoint::BranchPush)
+            .try_build();
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("repository"));
+    }
+
+    #[test]
+    #[should_panic(expected = "correlation_id is required")]
+    fn test_context_builder_panics_without_correlation_id() {
+        HookContext::builder()
+            .hook_point(HookPoint::BranchPush)
+            .repository(RepositoryId::default())
+            .build();
+    }
+
+    #[test]
+    fn test_context_clone() {
+        let ctx = HookContext::builder()
+            .correlation_id("original")
+            .hook_point(HookPoint::BranchPush)
+            .repository(RepositoryId::default())
+            .user("original_user")
+            .metadata("key", "value")
+            .build();
+
+        let cloned = ctx.clone();
+
+        // Verify cloned values match
+        assert_eq!(cloned.correlation_id(), "original");
+        assert_eq!(cloned.user(), Some("original_user"));
+        assert_eq!(cloned.get_metadata("key"), Some("value"));
+    }
+
+    #[test]
+    fn test_context_debug() {
+        let ctx = HookContext::builder()
+            .correlation_id("debug-test")
+            .hook_point(HookPoint::BranchPush)
+            .repository(RepositoryId::default())
+            .user("test_user")
+            .build();
+
+        let debug_str = format!("{ctx:?}");
+        assert!(debug_str.contains("debug-test"));
+        assert!(debug_str.contains("BranchPush"));
+        assert!(debug_str.contains("test_user"));
+    }
+
+    #[test]
+    fn test_context_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<HookContext>();
+    }
+}

@@ -1,0 +1,13 @@
+[package]
+name = "lore-macro"
+edition = "2024"
+version.workspace = true
+publish = false
+
+[lib]
+name = "lore_macro"
+proc-macro = true
+
+[dependencies]
+syn = { workspace = true, features = ["full"] }
+quote = { workspace = true }

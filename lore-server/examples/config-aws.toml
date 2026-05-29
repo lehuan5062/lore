@@ -1,0 +1,64 @@
+# Lore Server Configuration Example: AWS Storage
+# =====================================================================
+# This configuration demonstrates using AWS services (S3 + DynamoDB)
+# for storage, suitable for production cloud deployments.
+#
+# Required AWS services:
+# - S3 bucket for immutable fragment payloads
+# - DynamoDB tables for fragment associations, metadata, and mutable store
+# - DynamoDB table for distributed locking (optional)
+#
+# AWS-specific settings are in [plugins.aws] section
+
+[immutable_store]
+mode = "aws"
+
+[mutable_store]
+mode = "aws"
+
+[lock_store]
+mode = "aws"
+
+# ---------------------------------------------------------------------
+# AWS Plugin Configuration
+# ---------------------------------------------------------------------
+[plugins.aws]
+
+# HTTP client settings for AWS SDKs
+[plugins.aws.http]
+# Connection pool settings (optional)
+# pool_idle_timeout_secs = 60
+# pool_max_idle_per_host = 10
+
+# Immutable store settings (S3 + DynamoDB)
+[plugins.aws.immutable_store]
+s3_bucket = "urc-fragments"
+# s3_endpoint_url = "http://localhost:4566"
+# s3_region = "us-east-1"
+s3_slow_operation_threshold_millis = 5000
+s3_timeout_millis = 30000
+
+dynamodb_fragments_table = "urc-fragments"
+dynamodb_metadata_table = "urc-metadata"
+# dynamodb_endpoint_url = "http://localhost:4566"
+# dynamodb_region = "us-east-1"
+dynamodb_slow_operation_threshold_millis = 2000
+dynamodb_timeout_millis = 15000
+
+# Force write mode for debugging/profiling purposes, always overwrites data already present
+# force_write = false
+
+# Mutable store settings (DynamoDB)
+[plugins.aws.mutable_store]
+dynamodb_table = "urc-mutable"
+# dynamodb_endpoint_url = "http://localhost:4566"
+# dynamodb_region = "us-east-1"
+slow_operation_threshold_millis = 2000
+timeout_millis = 15000
+
+# Lock store settings (DynamoDB)
+[plugins.aws.lock_store]
+dynamodb_table = "urc-locks"
+# dynamodb_endpoint_url = "http://localhost:4566"
+# dynamodb_region = "us-east-1"
+dynamodb_slow_operation_threshold_millis = 1000

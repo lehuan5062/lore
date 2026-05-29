@@ -1,0 +1,65 @@
+# Running loreserver in Docker
+
+A basic Docker image for running loreserver with local filesystem storage. No authorization,
+telemetry integration, or replication is configured.
+
+## Prerequisites
+
+- Docker with BuildKit support
+- On Apple Silicon (M-series Macs), builds must target `linux/amd64` due to Graviton-specific
+  compiler flags in `.cargo/config.toml` for `aarch64-unknown-linux-gnu`
+
+## Building
+
+From the repository root:
+
+```sh
+docker build --platform linux/amd64 -f urc-server/Dockerfile -t loreserver .
+```
+
+The build compiles the `loreserver` binary and generates self-signed TLS certificates for QUIC
+using `scripts/server/make-certs.sh`.
+
+## Running
+
+```sh
+docker run -p 41337:41337/tcp -p 41337:41337/udp -p 41339:41339 loreserver
+```
+
+Both TCP and UDP mappings are required on port 41337 because gRPC uses TCP and QUIC uses UDP.
+
+### Persisting data
+
+By default, store data is written to `/data` inside the container and is lost when the container
+stops. Mount a host directory to persist it across restarts:
+
+```sh
+docker run \
+  -p 41337:41337/tcp \
+  -p 41337:41337/udp \
+  -p 41339:41339 \
+  -v /path/to/local/data:/data \
+  loreserver
+```
+
+## Ports
+
+| Port  | Protocol | Service        |
+|-------|----------|----------------|
+| 41337 | TCP      | gRPC           |
+| 41337 | UDP      | QUIC           |
+| 41339 | TCP      | HTTP           |
+
+## Configuration
+
+The image uses two config files in `/etc/urc/config/`:
+
+- `default.toml` — base server configuration (copied from `urc-server/config/default.toml`)
+- `docker.toml` — overrides store paths to `/data` and configures QUIC TLS certificates
+
+Settings can be overridden via environment variables with the `URC__` prefix and `__` as the
+separator. For example:
+
+```sh
+docker run -e URC__SERVER__HTTP__PORT=8080 -p 8080:8080 -p 41337:41337/tcp -p 41337:41337/udp loreserver
+```

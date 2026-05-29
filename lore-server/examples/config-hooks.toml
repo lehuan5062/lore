@@ -1,0 +1,105 @@
+# Lore Server Configuration Example: Hooks
+# =====================================================================
+# This configuration demonstrates enabling and configuring hooks.
+# Hooks allow custom logic to be executed at specific points in the
+# server's operation lifecycle.
+#
+# Available hook points:
+# - BranchPush: Before a branch push is committed
+# - BranchCreate: Before a new branch is created
+# - BranchDelete: Before a branch is deleted
+# - RepositoryCreate: Before a new repository is created
+# - Obliterate: Before content is obliterated
+#
+# Hooks can:
+# - Veto operations by returning an error
+# - Log/audit operations for compliance
+# - Trigger external notifications
+
+# ---------------------------------------------------------------------
+# Hook Configuration (Plugin-Based)
+# ---------------------------------------------------------------------
+# Hooks are defined in the [hooks.X] sections. Each hook has:
+# - enabled: Whether the hook is active (defaults to false)
+# - Additional configuration fields specific to the hook
+
+# Example: Compliance Hook (validates branch operations)
+# Uncomment to enable
+# [hooks.compliance]
+# enabled = true
+# # Deny branches matching these patterns (regex supported)
+# deny_patterns = [
+#     "^release/.*$",          # Protect release branches
+#     "^protected/.*$"         # Protected namespace
+# ]
+# # Allow these users to bypass restrictions
+# allowed_users = ["admin", "release-bot"]
+# # Webhook to call on validation failure
+# webhook_url = "https://compliance.example.com/notify"
+
+# Example: Audit Hook (logs all operations)
+# [hooks.audit]
+# enabled = true
+# # Log level for audit events
+# log_level = "info"
+# # Include user information in logs
+# include_user = true
+# # Include repository and branch details
+# include_details = true
+
+# Example: Notification Hook (sends webhooks on events)
+# [hooks.notification]
+# enabled = true
+# # Webhook endpoints for different event types
+# branch_push_url = "https://api.example.com/webhooks/branch-push"
+# branch_create_url = "https://api.example.com/webhooks/branch-create"
+# # HTTP headers to include
+# headers = { "Authorization" = "Bearer ${WEBHOOK_TOKEN}" }
+# # Timeout for webhook calls (seconds)
+# timeout_seconds = 10
+
+# ---------------------------------------------------------------------
+# Creating Custom Hooks
+# ---------------------------------------------------------------------
+# Custom hooks can be created by implementing the Hook trait in Rust.
+#
+# 1. Create a new file in urc-server/src/hooks/ (e.g., my_hook.rs)
+#
+# 2. Implement the Hook and HookFactory traits:
+#    ```rust
+#    pub struct MyHook { ... }
+#
+#    impl Hook for MyHook {
+#        fn hook_points(&self) -> Vec<HookPoint> {
+#            vec![HookPoint::BranchPush]
+#        }
+#
+#        async fn execute(&self, context: &HookContext) -> Result<(), HookError> {
+#            // Your hook logic here
+#            Ok(())
+#        }
+#    }
+#
+#    pub struct MyHookFactory;
+#
+#    impl HookFactory for MyHookFactory {
+#        fn name(&self) -> &'static str { "my_hook" }
+#        fn create(&self, config: &toml::Value) -> Result<Box<dyn Hook>, HookError> {
+#            // Parse config and create hook instance
+#            Ok(Box::new(MyHook { ... }))
+#        }
+#    }
+#
+#    pub fn register(registry: &mut HookRegistry) {
+#        registry.register(Box::new(MyHookFactory));
+#    }
+#    ```
+#
+# 3. The build.rs will automatically discover and register your hook
+#
+# 4. Configure it in TOML:
+#    ```toml
+#    [hooks.my_hook]
+#    enabled = true
+#    my_custom_setting = "value"
+#    ```

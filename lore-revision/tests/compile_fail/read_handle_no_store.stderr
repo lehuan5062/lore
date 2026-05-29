@@ -1,0 +1,9 @@
+error[E0599]: no method named `store` found for struct `ReadHandle<'a>` in the current scope
+  --> tests/compile_fail/read_handle_no_store.rs:10:10
+   |
+ 9 |       let _ = handle
+   |  _____________-
+10 | |         .store(todo!(), todo!(), todo!(), todo!())
+   | |         -^^^^^ private field, not a method
+   | |_________|
+   |

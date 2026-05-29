@@ -1,0 +1,48 @@
+[package]
+name = "lore-storage"
+edition = "2024"
+version.workspace = true
+publish = false
+
+[lib]
+name = "lore_storage"
+
+[dependencies]
+async-trait = { workspace = true }
+bitflags = { workspace = true }
+blake3 = { workspace = true }
+bytes = { workspace = true }
+crossbeam = { workspace = true }
+dashmap = { workspace = true }
+fastcdc = { workspace = true }
+futures = { workspace = true }
+lore-base = { workspace = true }
+hex = { workspace = true }
+libc = { workspace = true }
+lore-transport = { workspace = true }
+lz4-sys = { workspace = true }
+zstd-sys = { workspace = true }
+memmap2 = { workspace = true }
+opentelemetry = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+smallvec = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+lore-error-set = { workspace = true }
+lore-telemetry = { workspace = true }
+uuid = { workspace = true, features = ["zerocopy"] }
+xxhash-rust = { workspace = true }
+zerocopy = { workspace = true }
+
+[features]
+default = []
+failure_generator = []
+oodle = []
+trace_log = []
+
+[target.'cfg(target_family = "windows")'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }

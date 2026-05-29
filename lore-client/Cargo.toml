@@ -1,0 +1,54 @@
+[package]
+name = "lore-client"
+edition = "2024"
+version.workspace = true
+publish = false
+
+[dependencies]
+anstream = { workspace = true }
+anstyle = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+clap-markdown = { workspace = true }
+clap_complete = { version = "4.5.47" }
+libc = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+windows-sys = { workspace = true, features = ["Win32_System_Console", "Win32_Networking_WinSock"] }
+
+lore = { workspace = true }
+lore-base = { workspace = true }
+lore-error-set = { workspace = true }
+lore-revision = { workspace = true }
+
+[features]
+default = []
+oodle = ["lore/oodle"]
+
+[build-dependencies]
+vergen = { workspace = true }
+anyhow = { workspace = true }
+winresource = "0.1.23"
+
+[[bin]]
+name = "lore"
+path = "src/cli/main.rs"
+test = false
+doctest = false
+bench = false
+doc = false
+harness = false
+
+[lib]
+name = "lore_client"
+path = "src/cli/lib.rs"
+
+[package.metadata.winresource]
+OriginalFilename = "lore.exe"
+ProductName = "Lore"
+FileDescription = "Lore CLI"
+LegalCopyright = "Copyright Epic Games, Inc."

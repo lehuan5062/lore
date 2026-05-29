@@ -1,0 +1,71 @@
+exclude: /thirdparty/|lore-server/src/protocol/test_data/|tps/|.github/
+
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-clippy
+        name: cargo clippy
+        language: rust
+        entry: ./.pre-commit-clippy.py
+        pass_filenames: false
+        always_run: true
+
+      - id: cargo-fmt
+        name: cargo format
+        language: rust
+        entry: cargo +nightly fmt --all --check
+        pass_filenames: false
+        always_run: true
+
+  - repo: https://github.com/EmbarkStudios/cargo-deny
+    rev: 0.19.0
+    hooks:
+      - id: cargo-deny
+        args: [ "--all-features", "check", "bans", "licenses", "sources" ]
+        always_run: true
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-executables-have-shebangs
+      # Ignore for now until executable flag handling is easier in Lore
+      # - id: check-shebang-scripts-are-executable
+      - id: mixed-line-ending
+        args: [ "--fix=lf" ]
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-vcs-permalinks
+      - id: detect-private-key
+      - id: fix-byte-order-marker
+
+  - repo: https://github.com/Lucas-C/pre-commit-hooks
+    rev: v1.5.5
+    hooks:
+      - id: remove-tabs
+        # lore-core/native uses clangformat, which expects to use tabs so leave that path alone
+        exclude: lore-core/native
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        require_serial: true
+        args: [ "--severity=info", "--external-sources" ]
+        exclude: ".envrc$"
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.2.4
+    hooks:
+      - id: codespell
+        args: [ "-L", "ue,crate,numer,ser,ratatui,ect,noes,keep-alives", "-S", "Cargo.*,vendor/*" ]
+        exclude: ^docs/developing/doc-standards/tools/vale/styles/
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.1
+    hooks:
+      - id: actionlint
+        files: ^\.github/workflows/
+        args: [ "--config-file", ".github/actionlint.yaml" ]

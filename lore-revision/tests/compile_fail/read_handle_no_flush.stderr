@@ -1,0 +1,5 @@
+error[E0599]: no method named `flush` found for struct `ReadHandle<'a>` in the current scope
+ --> tests/compile_fail/read_handle_no_flush.rs:7:20
+  |
+7 |     let _ = handle.flush(true).await;
+  |                    ^^^^^ method not found in `ReadHandle<'_>`
