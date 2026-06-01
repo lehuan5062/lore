@@ -10,7 +10,7 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use anyhow::anyhow;
+use clap::Parser;
 use lore_base::lore_spawn;
 use lore_base::runtime::LORE_CONTEXT;
 use lore_base::runtime::LoreTaskLifecycleEvent;
@@ -115,6 +116,30 @@ mod store_mode {
     pub const REPLICATED: &str = "replicated";
 }
 
+/// Command-line options for the Lore server binary.
+///
+/// All configuration is optional: with no arguments the server starts from the
+/// defaults baked into the binary. Both flags also fall back to their
+/// corresponding environment variables.
+#[derive(Debug, Parser)]
+#[command(name = "loreserver", version, about = "Lore revision control server")]
+pub struct Cli {
+    /// Directory of TOML config files layered over the built-in defaults.
+    ///
+    /// When set, the server loads (if present) `default.toml`,
+    /// `<environment>.toml`, `<environment>_<region>.toml`, and `local.toml`
+    /// from this directory as overrides. When unset, only the built-in defaults
+    /// and environment variables are used.
+    #[arg(long, value_name = "DIR", env = "LORE_CONFIG_PATH")]
+    pub config: Option<String>,
+
+    /// Environment name selecting the `<environment>.toml` override to load.
+    ///
+    /// Defaults to `local` when neither the flag nor `LORE_ENV` is set.
+    #[arg(long, value_name = "ENV", env = "LORE_ENV")]
+    pub env: Option<String>,
+}
+
 /// Entry point for the Lore server.
 ///
 /// Both the base `loreserver` binary and derived server binaries call this
@@ -139,7 +164,8 @@ mod store_mode {
 pub fn server_main(config: ServerConfig) -> Result<()> {
     set_user_agent(format!("lore-server/{}", LORE_LIBRARY_VERSION.as_str()));
 
-    let (settings, settings_hash) = Settings::load()?;
+    let cli = Cli::parse();
+    let (settings, settings_hash) = Settings::load(cli.config.as_deref(), cli.env.as_deref())?;
     let runtime_shutdown_timeout = settings.server.runtime_shutdown_timeout_seconds;
 
     lore_base::log::set_log_callback(Some(server_log_dispatch));
@@ -302,15 +328,17 @@ async fn launch_quinn_server(
     stream_handler_factory: Box<dyn StreamHandlerFactory>,
     metrics_frequency: Duration,
     quic_settings: QuicSettings,
+    generate_ephemeral_cert: bool,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let span = info_span!("QUIC server", name);
 
     async {
-        let cert_settings = quic_settings
-            .certificate
-            .clone()
-            .ok_or(anyhow!("Missing QUIC certificate config"))?;
+        let cert_settings = match quic_settings.certificate.clone() {
+            Some(cert_settings) => cert_settings,
+            None if generate_ephemeral_cert => generate_ephemeral_certificate(name)?,
+            None => return Err(anyhow!("Missing QUIC certificate config")),
+        };
 
         let client_verifier = if quic_settings.verify_client_certs {
             let ca_path = cert_settings
@@ -873,14 +901,104 @@ fn local_store() -> Option<Arc<dyn ImmutableStore>> {
     LOCAL_STORE.get().and_then(|weak| weak.upgrade())
 }
 
+/// Directory under the system temporary directory where the server keeps
+/// zero-config artifacts (local stores and ephemeral certificates) when no
+/// explicit locations are configured.
+fn local_data_dir() -> PathBuf {
+    std::env::temp_dir().join("lore-server")
+}
+
+/// Resolve the configured local store path, falling back to a directory under
+/// the system temporary directory when none was provided.
+///
+/// The resolved path is logged so operators can see where on-disk state lives.
+/// When no path was configured, the generated temporary path is logged as a
+/// prominent warning because that location is ephemeral and not persisted
+/// across reboots.
+fn resolve_local_store_path(configured: &str, store_label: &str) -> PathBuf {
+    if configured.trim().is_empty() {
+        let path = local_data_dir();
+        warn!(
+            store = store_label,
+            path = %path.display(),
+            "No local store path configured for the '{}' store; generated a path under the system \
+             temporary directory: {}. This data is EPHEMERAL and not persisted across reboots — \
+             configure an explicit path for production.",
+            store_label,
+            path.display(),
+        );
+        path
+    } else {
+        let path = PathBuf::from(configured);
+        info!(store = store_label, path = %path.display(), "Using configured local store path");
+        path
+    }
+}
+
+/// Build a [`CertificateSettings`](crate::tls::CertificateSettings) for an
+/// endpoint that has no certificate configured by generating an ephemeral
+/// self-signed certificate and writing it under the system temporary directory.
+///
+/// Used for the user-facing QUIC endpoint so a stand alone server binary with
+/// no external config can serve TLS out of the box. A prominent warning is
+/// logged because these certificates are untrusted and regenerated on every
+/// startup.
+fn generate_ephemeral_certificate(endpoint: &str) -> Result<crate::tls::CertificateSettings> {
+    let dir = local_data_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        anyhow!(
+            "failed to create directory {} for ephemeral certificate: {e}",
+            dir.display()
+        )
+    })?;
+
+    let cert_file = dir.join(format!("{endpoint}-cert.pem"));
+    let pkey_file = dir.join(format!("{endpoint}-key.pem"));
+
+    let generated = lore_transport::tls::generate_self_signed(vec![
+        "localhost".to_string(),
+        "127.0.0.1".to_string(),
+        "::1".to_string(),
+    ])?;
+
+    std::fs::write(&cert_file, generated.cert_pem).map_err(|e| {
+        anyhow!(
+            "failed to write ephemeral certificate {}: {e}",
+            cert_file.display()
+        )
+    })?;
+    std::fs::write(&pkey_file, generated.key_pem).map_err(|e| {
+        anyhow!(
+            "failed to write ephemeral private key {}: {e}",
+            pkey_file.display()
+        )
+    })?;
+
+    warn!(
+        endpoint,
+        cert = %cert_file.display(),
+        key = %pkey_file.display(),
+        "No TLS certificate configured for the '{endpoint}' QUIC endpoint; generated an \
+         EPHEMERAL SELF-SIGNED certificate. This is untrusted, regenerated on every restart, \
+         and intended for local development only. Configure a real certificate for production."
+    );
+
+    Ok(crate::tls::CertificateSettings {
+        cert_chain: None,
+        cert_file,
+        pkey_file,
+    })
+}
+
 async fn create_local_store(
     settings: &LocalImmutableStoreSettings,
     flush_background: bool,
 ) -> Result<Arc<dyn ImmutableStore>> {
     let default_settings = lore_storage::local::immutable_store::ImmutableStoreSettings::default();
+    let store_path = resolve_local_store_path(&settings.path, "immutable");
 
     lore_storage::local::immutable_store::create(
-        Some(Path::new(&settings.path)),
+        Some(store_path.as_path()),
         ImmutableStoreCreateOptions {
             max_capacity: settings.max_capacity,
             eviction_delay: settings
@@ -934,8 +1052,10 @@ async fn configure_local_mutable_store(
 ) -> Result<Arc<dyn MutableStore>> {
     info!("Wiring up local mutable store");
 
+    let store_path = resolve_local_store_path(&settings.path, "mutable");
+
     Ok(lore_storage::local::mutable_store::create(
-        Some(Path::new(&settings.path)),
+        Some(store_path.as_path()),
         lore_storage::MutableStoreSettings {
             flush_delay_seconds: settings.flush_delay_seconds as u64,
             initial_fan_out_level: lore_storage::local::fan_out::FAN_OUT_LEVEL_MAX, /* Server mode, full 256-bucket layout from the start */
@@ -1687,6 +1807,9 @@ async fn async_main(settings: (Settings, StringHash), config: ServerConfig) -> R
                 )),
                 frequency,
                 quic_settings,
+                // User-facing endpoint: generate an ephemeral certificate when
+                // none is configured so the server runs with zero config.
+                true,
                 shutdown_rx,
             )
         });
@@ -1742,6 +1865,9 @@ async fn async_main(settings: (Settings, StringHash), config: ServerConfig) -> R
                 )),
                 frequency,
                 quic_settings,
+                // Internal replication endpoint requires a real (mTLS) certificate;
+                // never fall back to an ephemeral one.
+                false,
                 shutdown_rx,
             )
         });

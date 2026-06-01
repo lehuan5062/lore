@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::anyhow;
-use lore_revision::tls;
+use lore_transport::tls;
 use rustls::server::NoClientAuth;
 use rustls::server::danger::ClientCertVerifier;
 use tracing::info;

@@ -3,6 +3,15 @@
 # =============================================================================
 # This file contains the default settings for all environments.
 # Environment-specific configs (ci.toml, gamedev.toml, etc.) override these.
+#
+# NOTE: This file is BAKED INTO THE SERVER BINARY at compile time via
+# `include_str!` (see `Settings::load` in lore-server/src/settings.rs). It is the
+# single source of truth for the built-in defaults, so the server starts with
+# sensible settings and NO external config files. It is NOT read from disk at
+# runtime and does NOT need to be packaged or deployed alongside the binary.
+# Editing it changes the compiled-in defaults and requires a rebuild to take
+# effect. On-disk config files (passed via `--config` / `LORE_CONFIG_PATH`) are
+# layered on top of these defaults as optional overrides.
 
 [server]
 connection_close_timeout_seconds = 5
@@ -79,13 +88,14 @@ mode = "local"
 # =============================================================================
 # Local Store Configuration (Predefined Type)
 # =============================================================================
+# `path` is intentionally omitted: when unset, the server derives a path under
+# the system temporary directory (`<tmp>/lore-server`) at startup. Set `path`
+# explicitly in an override file to pin the store to a fixed location.
 
 [immutable_store.local]
-path = "./"
 flush_delay_seconds = 10
 
 [mutable_store.local]
-path = "./"
 flush_delay_seconds = 10
 
 # =============================================================================

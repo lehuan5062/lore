@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 pub use config::QuinnConfigBuilder;
-use lore_revision::tls;
+use lore_transport::tls;
 pub use quinn_server::QuinnServer;
 use rustls::RootCertStore;
 use rustls::server::WebPkiClientVerifier;

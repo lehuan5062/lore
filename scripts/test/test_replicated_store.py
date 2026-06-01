@@ -73,9 +73,11 @@ class TestReplicatedStore:
         server_2_env["LORE__IMMUTABLE_STORE__MODE"] = "replicated"
         server_2_env["LORE__SERVER__REPLICATION__ENABLED"] = "false"
 
-        # write Sanza
+        # Override the replicated-store settings via local.toml. The server no
+        # longer reads default.toml from disk (it is baked into the binary), so
+        # local.toml is the override file that gets loaded, layered last.
         with open(
-                os.path.join(new_server_root, "lore-server", "config", "default.toml"),
+                os.path.join(new_server_root, "lore-server", "config", "local.toml"),
                 "a",
                 encoding="utf-8",
         ) as server_2_config:

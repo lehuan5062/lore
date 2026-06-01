@@ -110,7 +110,7 @@ class TestTopology:
         ] = "false"
         # write a Stanza for topology
         with open(
-            os.path.join(new_server_root, "lore-server", "config", "default.toml"),
+            os.path.join(new_server_root, "lore-server", "config", "local.toml"),
             "a",
             encoding="utf-8",
         ) as server_2_config:
@@ -165,7 +165,7 @@ class TestTopology:
         ] = "true"
         # write a Stanza for topology
         with open(
-            os.path.join(new_server_root, "lore-server", "config", "default.toml"),
+            os.path.join(new_server_root, "lore-server", "config", "local.toml"),
             "a",
             encoding="utf-8",
         ) as server_3_config:
@@ -529,7 +529,7 @@ class TestCompositeTopology:
         other_region_port = other_ports["replication"]
 
         with open(
-            os.path.join(new_server_root, "lore-server", "config", "default.toml"),
+            os.path.join(new_server_root, "lore-server", "config", "local.toml"),
             "a",
             encoding="utf-8",
         ) as cfg:

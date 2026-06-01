@@ -6,7 +6,6 @@ use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
@@ -32,9 +31,6 @@ use quinn::VarInt;
 use quinn::congestion;
 use quinn::crypto::rustls::QuicClientConfig;
 use rustls::RootCertStore;
-use rustls::pki_types::CertificateDer;
-use rustls::pki_types::PrivateKeyDer;
-use rustls::pki_types::pem::PemObject;
 use rustls_native_certs::load_native_certs;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -55,22 +51,8 @@ use crate::connection::RECONNECT_MAX_ATTEMPTS;
 use crate::connection::RECONNECT_MAX_DELAY;
 use crate::connection::RECONNECT_START_DELAY;
 use crate::error::ProtocolError;
-
-fn load_certs(path: impl AsRef<Path>) -> Result<Vec<CertificateDer<'static>>, ProtocolError> {
-    CertificateDer::pem_file_iter(path)
-        .map_err(|e| ProtocolError::internal(format!("failed to read certificate file: {e}")))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| ProtocolError::internal(format!("invalid certificate: {e}")))
-}
-
-fn load_private_key(path: impl AsRef<Path>) -> Result<PrivateKeyDer<'static>, ProtocolError> {
-    PrivateKeyDer::from_pem_file(path).map_err(|e| match e {
-        rustls::pki_types::pem::Error::NoItemsFound => {
-            ProtocolError::internal("no private keys found")
-        }
-        other => ProtocolError::internal(format!("malformed private key: {other}")),
-    })
-}
+use crate::tls::load_certs;
+use crate::tls::load_private_key;
 
 pub const STREAM_COUNT: u32 = 8;
 pub const PRIORITY_STREAM_COUNT: u32 = 2;

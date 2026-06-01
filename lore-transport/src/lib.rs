@@ -6,6 +6,7 @@ pub mod error;
 pub mod grpc;
 pub mod quic;
 pub mod session;
+pub mod tls;
 pub mod traits;
 pub mod types;
 pub mod util;

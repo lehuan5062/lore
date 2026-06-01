@@ -85,22 +85,59 @@ impl std::fmt::Debug for Settings {
     }
 }
 
+/// The built-in default configuration, baked into the binary at compile time.
+///
+/// This is the contents of `config/default.toml` and serves as the base layer
+/// for every server invocation, so a stand alone server binary with no external
+/// config starts with sensible defaults and needs no configuration files on disk.
+const DEFAULT_CONFIG_TOML: &str = include_str!("../config/default.toml");
+
+/// The on-disk config directory used when no `config_path` is supplied (via
+/// `--config` / `LORE_CONFIG_PATH`). Files in it are optional, so a missing
+/// directory just leaves the server running on its built-in defaults.
+const DEFAULT_CONFIG_DIR: &str = "lore-server/config";
+
 impl Settings {
-    pub fn load() -> Result<(Self, StringHash), config::ConfigError> {
+    /// Load settings, layering optional on-disk overrides over the built-in
+    /// defaults baked into the binary.
+    ///
+    /// Layering order (later sources win):
+    /// 1. The built-in [`DEFAULT_CONFIG_TOML`] (always present).
+    /// 2. The optional files `<environment>.toml`,
+    ///    `<environment>_<region>.toml`, and `local.toml` from the config
+    ///    directory. The directory comes from `config_path` (via `--config` /
+    ///    `LORE_CONFIG_PATH`) when supplied, otherwise it falls back to
+    ///    [`DEFAULT_CONFIG_DIR`].
+    /// 3. Environment variables prefixed with `LORE__`.
+    ///
+    /// Every on-disk file is optional, so the server still starts from the
+    /// built-in defaults (and environment variables) even when the config
+    /// directory is absent.
+    pub fn load(
+        config_path: Option<&str>,
+        environment: Option<&str>,
+    ) -> Result<(Self, StringHash), config::ConfigError> {
         println!("Server version: {}", LORE_LIBRARY_VERSION.as_str());
 
-        let environment = env::var("LORE_ENV").unwrap_or_else(|_| "local".into());
+        let environment = environment.unwrap_or("local");
         println!("Using environment: {environment}");
 
-        let config_path =
-            env::var("LORE_CONFIG_PATH").unwrap_or_else(|_| "lore-server/config".into());
-        println!("Using config path: {config_path}");
+        // Start from the defaults baked into the binary so the server can run
+        // with no configuration files present at all.
+        let mut settings_builder = Config::builder().add_source(config::File::from_str(
+            DEFAULT_CONFIG_TOML,
+            config::FileFormat::Toml,
+        ));
 
-        let mut settings_builder = Config::builder()
-            .add_source(config::File::with_name(&format!("{config_path}/default")))
-            .add_source(config::File::with_name(&format!(
-                "{config_path}/{environment}"
-            )));
+        // Layer optional on-disk overrides. Use the config directory supplied
+        // on the command line (or via LORE_CONFIG_PATH) when present, otherwise
+        // fall back to the default `lore-server/config` directory. Every file is
+        // optional: missing files (or a missing directory) are silently skipped.
+        let config_path = config_path.unwrap_or(DEFAULT_CONFIG_DIR);
+        println!("Using config path: {config_path}");
+        settings_builder = settings_builder.add_source(
+            config::File::with_name(&format!("{config_path}/{environment}")).required(false),
+        );
         if let Ok(instance_region) = env::var("LORE_PLATFORM_REGION") {
             settings_builder = settings_builder.add_source(
                 config::File::with_name(&format!("{config_path}/{environment}_{instance_region}"))
@@ -108,8 +145,10 @@ impl Settings {
             );
         }
         settings_builder = settings_builder
-            .add_source(config::File::with_name(&format!("{config_path}/local")).required(false))
-            .add_source(config::Environment::with_prefix("lore").separator("__"));
+            .add_source(config::File::with_name(&format!("{config_path}/local")).required(false));
+
+        settings_builder =
+            settings_builder.add_source(config::Environment::with_prefix("lore").separator("__"));
 
         let settings = settings_builder.build()?;
         let settings: Settings = settings.try_deserialize()?;
@@ -342,6 +381,10 @@ pub struct LocalImmutableStoreSettings {
     pub compaction_delay: Option<usize>,
     pub eviction_delay: Option<usize>,
     pub flush_delay_seconds: u16,
+    /// Filesystem location for the local store. When empty (the default), the
+    /// server derives `<system temp dir>/lore-server` at startup so a stand
+    /// alone server binary with no external config can run as-is.
+    #[serde(default)]
     pub path: String,
     pub max_capacity: Option<usize>,
     pub max_size: Option<usize>,
@@ -354,6 +397,10 @@ pub struct LocalImmutableStoreSettings {
 //#[serde(deny_unknown_fields)]
 pub struct LocalMutableStoreSettings {
     pub flush_delay_seconds: u16,
+    /// Filesystem location for the local store. When empty (the default), the
+    /// server derives `<system temp dir>/lore-server` at startup so a stand
+    /// alone server binary with no external config can run as-is.
+    #[serde(default)]
     pub path: String,
 }
 

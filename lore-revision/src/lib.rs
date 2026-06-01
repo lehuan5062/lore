@@ -50,7 +50,6 @@ pub mod runtime;
 pub mod stage;
 pub mod state;
 pub mod store;
-pub mod tls;
 pub mod util;
 
 #[cfg(all(target_family = "windows", feature = "vfs"))]
