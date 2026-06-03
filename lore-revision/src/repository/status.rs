@@ -409,6 +409,66 @@ async fn count_tree(
     Ok((directories, files))
 }
 
+/// Count the subtree rooted at `source_path` in `state` (the node itself plus
+/// its descendants), labelling descendant paths under `target_path` for view
+/// filtering. The two differ for a layer: the node is resolved at the layer's
+/// `source_path` while paths are labelled with the mount `target_path`, so the
+/// local view filter matches the working-tree layout. A file yields `(0, 1)`,
+/// a directory or link `(1 + sub_directories, sub_files)`. An empty
+/// `source_path` is the root of `state` (a layer whose source is the repo
+/// root), counted as one directory plus its descendants. An unresolved path
+/// yields `(0, 0)`.
+async fn count_at_path(
+    state: Arc<state::State>,
+    repository: Arc<RepositoryContext>,
+    source_path: &RelativePath,
+    target_path: &RelativePath,
+) -> Result<(u64, u64), StatusError> {
+    if source_path.is_empty() {
+        let (directories, files) =
+            count_tree(state, repository, ROOT_NODE, target_path.clone()).await?;
+        return Ok((1 + directories, files));
+    }
+
+    let Ok(link) = state
+        .find_node_link(repository.clone(), source_path.as_str())
+        .await
+    else {
+        return Ok((0, 0));
+    };
+    if !link.is_valid() {
+        return Ok((0, 0));
+    }
+
+    let (repository, state) = link
+        .resolve(repository.clone(), state.clone())
+        .await
+        .forward::<StatusError>("resolving count path")?;
+    let node = state
+        .node(repository.clone(), link.node)
+        .await
+        .forward::<StatusError>("reading count path node")?;
+
+    if node.is_file() {
+        return Ok((0, 1));
+    }
+
+    if node.is_link() {
+        let inner = node.linked_node();
+        let (repository, state) = inner
+            .resolve(repository.clone(), state.clone())
+            .await
+            .forward::<StatusError>("resolving count path link target")?;
+        let (directories, files) =
+            count_tree(state, repository, inner.node, target_path.clone()).await?;
+        return Ok((1 + directories, files));
+    }
+
+    let (directories, files) =
+        count_tree(state, repository, link.node, target_path.clone()).await?;
+    Ok((1 + directories, files))
+}
+
 pub async fn status(
     repository: Arc<RepositoryContext>,
     paths: Option<Vec<RelativePath>>,
@@ -682,14 +742,63 @@ pub async fn status(
         event::LoreEvent::RepositoryStatusRevision(data).send();
     }
 
+    let paths = match paths.map(RelativePath::dedup_to_supersets) {
+        // Caller supplied a path filter that survived dedup — iterate it.
+        Some(deduped) if !deduped.is_empty() => deduped.into_iter().map(Some).collect(),
+        // No filter, or dedup collapsed to the repository root — scan everything.
+        _ => vec![None],
+    };
+
     if options.count {
-        let (directories, files) = count_tree(
-            state_staged.clone(),
-            repository.clone(),
-            ROOT_NODE,
-            RelativePath::default(),
-        )
-        .await?;
+        let mut directories = 0u64;
+        let mut files = 0u64;
+
+        for path in paths.iter() {
+            let (path_directories, path_files) = match path {
+                None => {
+                    count_tree(
+                        state_staged.clone(),
+                        repository.clone(),
+                        ROOT_NODE,
+                        RelativePath::default(),
+                    )
+                    .await?
+                }
+                Some(path) => {
+                    count_at_path(state_staged.clone(), repository.clone(), path, path).await?
+                }
+            };
+            directories += path_directories;
+            files += path_files;
+
+            for (layer, layer_state) in layers.iter() {
+                let target_path =
+                    RelativePath::new_from_initial_path(&layer.target_path).unwrap_or_default();
+                let selected = path.clone().unwrap_or_else(|| target_path.clone());
+                if !selected.is_empty() && !selected.overlaps(&layer.target_path) {
+                    continue;
+                }
+                let sub_path = if selected.as_str().len() > target_path.len() {
+                    &selected.as_str()[target_path.len()..]
+                } else {
+                    ""
+                };
+                let source_subpath =
+                    RelativePath::new_from_clean_parts(&layer.source_path, sub_path);
+                let target_subpath =
+                    RelativePath::new_from_clean_parts(&layer.target_path, sub_path);
+                let (layer_directories, layer_files) = count_at_path(
+                    layer_state.state_staged.clone(),
+                    layer_state.repository.clone(),
+                    &source_subpath,
+                    &target_subpath,
+                )
+                .await?;
+                directories += layer_directories;
+                files += layer_files;
+            }
+        }
+
         lore_debug!("Repository size: {directories} directories, {files} files");
         event::LoreEvent::RepositoryStatusCount(LoreRepositoryStatusCountEventData {
             directories,
@@ -701,13 +810,6 @@ pub async fn status(
     if options.revision_only {
         return Ok(());
     }
-
-    let paths = match paths.map(RelativePath::dedup_to_supersets) {
-        // Caller supplied a path filter that survived dedup — iterate it.
-        Some(deduped) if !deduped.is_empty() => deduped.into_iter().map(Some).collect(),
-        // No filter, or dedup collapsed to the repository root — scan everything.
-        _ => vec![None],
-    };
 
     // Compare current state against staged state
     if show_staged && has_staged {

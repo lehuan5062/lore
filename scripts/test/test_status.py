@@ -385,10 +385,11 @@ def test_status_count_link(new_lore_repo, tmp_path_factory):
 
     Without a view filter the count covers only `lk` and the linked subtree
     alongside `root.txt` — 3 directories, 4 files — never the target's
-    unmounted entries. A view-filtered clone that re-includes `root.txt` and
-    `lk/**` but excludes `lk/drop/` drops exactly that part of the linked
-    subtree — 2 directories, 3 files — proving the view filter reaches inside
-    the link via the mount path.
+    unmounted entries. A path argument into the link counts just that subtree
+    (`lk/keep` is 1/1, the file `lk/keep/k.txt` is 0/1). A view-filtered clone
+    that re-includes `root.txt` and `lk/**` but excludes `lk/drop/` drops
+    exactly that part of the linked subtree — 2 directories, 3 files — proving
+    the view filter reaches inside the link via the mount path.
     """
     link_repo: Lore = new_lore_repo()
     link_repo.make_dirs(posix_join("mounted", "keep"))
@@ -428,6 +429,13 @@ def test_status_count_link(new_lore_repo, tmp_path_factory):
         f"Expected 4 files (root.txt + lk/top.txt + lk/keep/k.txt + lk/drop/d.txt), got {count}"
     )
 
+    assert parse_status_count_json(
+        repo.status(posix_join("lk", "keep"), count=True, json=True)
+    ) == {"directories": 1, "files": 1}
+    assert parse_status_count_json(
+        repo.status(posix_join("lk", "keep", "k.txt"), count=True, json=True)
+    ) == {"directories": 0, "files": 1}
+
     view_dir = tmp_path_factory.mktemp("link-view")
     view_path = os.path.join(view_dir, "view.txt")
     with open(view_path, "w+") as view_file:
@@ -445,3 +453,193 @@ def test_status_count_link(new_lore_repo, tmp_path_factory):
     assert clone_count["files"] == 3, (
         f"View filter should drop lk/drop/d.txt inside the link: expected 3 files, got {clone_count}"
     )
+
+
+@pytest.mark.smoke
+def test_status_count_paths(new_lore_repo):
+    """`status --count <paths>` counts only the selected subtrees, summed.
+
+    Each path argument resolves to a starting node; a directory contributes
+    itself plus its descendants, a file contributes itself, and multiple paths
+    are summed. With the tree `a/{a1,a2}`, `b/{b1, sub/b2}`, `root.txt` the
+    whole repo is 3 directories and 5 files; `a` is 1/2, `b` is 2/2, `a b` is
+    3/4, and a single file path is 0/1.
+    """
+    repo: Lore = new_lore_repo()
+    repo.make_dirs("a")
+    repo.make_dirs(posix_join("b", "sub"))
+    with repo.open_file(posix_join("a", "a1.txt"), "w+b") as f:
+        f.write(os.urandom(64))
+    with repo.open_file(posix_join("a", "a2.txt"), "w+b") as f:
+        f.write(os.urandom(64))
+    with repo.open_file(posix_join("b", "b1.txt"), "w+b") as f:
+        f.write(os.urandom(64))
+    with repo.open_file(posix_join("b", "sub", "b2.txt"), "w+b") as f:
+        f.write(os.urandom(64))
+    with repo.open_file("root.txt", "w+b") as f:
+        f.write(os.urandom(64))
+    repo.stage(scan=True)
+    repo.commit()
+    repo.push()
+
+    assert parse_status_count_json(repo.status(count=True, json=True)) == {
+        "directories": 3,
+        "files": 5,
+    }
+    assert parse_status_count_json(repo.status("a", count=True, json=True)) == {
+        "directories": 1,
+        "files": 2,
+    }
+    assert parse_status_count_json(repo.status("b", count=True, json=True)) == {
+        "directories": 2,
+        "files": 2,
+    }
+    assert parse_status_count_json(repo.status(["a", "b"], count=True, json=True)) == {
+        "directories": 3,
+        "files": 4,
+    }
+    assert parse_status_count_json(
+        repo.status(posix_join("b", "sub", "b2.txt"), count=True, json=True)
+    ) == {"directories": 0, "files": 1}
+
+
+@pytest.mark.smoke
+def test_status_count_layer(new_lore_repo):
+    """`status --count` includes layer content (a standalone state tree mounted
+    into the parent), counting only the mapped source subsection, honoring path
+    filtering, and applying the local view filter via the mount (target) path.
+
+    The layer repository maps its `mapped/` subsection (`top.txt`, `keep/k.txt`,
+    `drop/d.txt`) at a differently named `lay/`, while `outside/` and
+    `loose.txt` stay unmapped. The whole-repo count is `root.txt` plus the `lay`
+    mount and the mapped subtree — 3 directories, 4 files — never the unmapped
+    entries. `--count lay` counts just the layer (3/3), `--count lay/keep` just
+    that subtree (1/1), `--count root.txt` just the parent file (0/1), and a
+    view filter excluding `lay/drop/` drops that part of the mapped content
+    (2/3), proving the filter matches the target mount path, not the source.
+    """
+    layer_repo: Lore = new_lore_repo()
+    layer_repo.make_dirs(posix_join("mapped", "keep"))
+    layer_repo.make_dirs(posix_join("mapped", "drop"))
+    with layer_repo.open_file(posix_join("mapped", "top.txt"), "w+b") as f:
+        f.write(os.urandom(64))
+    with layer_repo.open_file(posix_join("mapped", "keep", "k.txt"), "w+b") as f:
+        f.write(os.urandom(64))
+    with layer_repo.open_file(posix_join("mapped", "drop", "d.txt"), "w+b") as f:
+        f.write(os.urandom(64))
+    layer_repo.make_dirs("outside")
+    with layer_repo.open_file(posix_join("outside", "o.txt"), "w+b") as f:
+        f.write(os.urandom(64))
+    with layer_repo.open_file("loose.txt", "w+b") as f:
+        f.write(os.urandom(64))
+    layer_repo.stage(scan=True)
+    layer_repo.commit()
+    layer_repo.push()
+
+    repo: Lore = new_lore_repo()
+    with repo.open_file("root.txt", "w+b") as f:
+        f.write(os.urandom(64))
+    repo.stage(scan=True)
+    repo.commit()
+    repo.push()
+
+    repo.layer_add("lay", layer_repo, "mapped/")
+
+    assert parse_status_count_json(repo.status(count=True, json=True)) == {
+        "directories": 3,
+        "files": 4,
+    }
+    assert parse_status_count_json(repo.status("lay", count=True, json=True)) == {
+        "directories": 3,
+        "files": 3,
+    }
+    assert parse_status_count_json(
+        repo.status(posix_join("lay", "keep"), count=True, json=True)
+    ) == {"directories": 1, "files": 1}
+    assert parse_status_count_json(
+        repo.status("root.txt", count=True, json=True)
+    ) == {"directories": 0, "files": 1}
+
+    with repo.open_file(posix_join(repo.dot_dir(), "view"), "w+") as view_file:
+        view_file.write("**\n")
+        view_file.write("!root.txt\n")
+        view_file.write("!lay/**\n")
+        view_file.write("lay/drop/\n")
+
+    assert parse_status_count_json(repo.status(count=True, json=True)) == {
+        "directories": 2,
+        "files": 3,
+    }
+
+
+@pytest.mark.smoke
+def test_status_count_link_and_layers(new_lore_repo):
+    """`status --count` sums the parent tree, an in-tree link, and multiple
+    layers, and path filtering selects across all of them.
+
+    The main repository has `root.txt`, a link `lk` to another repository's
+    `linked/` (`x.txt`, `y.txt`), and two layers: `la` (`a1.txt`, `a2.txt`) and
+    `lb` (`b1.txt`, `sub/b2.txt`). The whole count is 4 directories, 7 files.
+    Each path argument selects only its own subtree: `lk` is 1/2, `la` is 1/2,
+    `lb` is 2/2, and `lk la lb` together is 4/6 (excluding `root.txt`).
+    """
+    link_repo: Lore = new_lore_repo()
+    link_repo.make_dirs("linked")
+    for name in ("x.txt", "y.txt"):
+        with link_repo.open_file(posix_join("linked", name), "w+b") as f:
+            f.write(os.urandom(64))
+    link_repo.stage(scan=True)
+    link_repo.commit()
+    link_repo.push()
+
+    layer_a: Lore = new_lore_repo()
+    layer_a.make_dirs("la")
+    for name in ("a1.txt", "a2.txt"):
+        with layer_a.open_file(posix_join("la", name), "w+b") as f:
+            f.write(os.urandom(64))
+    layer_a.stage(scan=True)
+    layer_a.commit()
+    layer_a.push()
+
+    layer_b: Lore = new_lore_repo()
+    layer_b.make_dirs(posix_join("lb", "sub"))
+    with layer_b.open_file(posix_join("lb", "b1.txt"), "w+b") as f:
+        f.write(os.urandom(64))
+    with layer_b.open_file(posix_join("lb", "sub", "b2.txt"), "w+b") as f:
+        f.write(os.urandom(64))
+    layer_b.stage(scan=True)
+    layer_b.commit()
+    layer_b.push()
+
+    repo: Lore = new_lore_repo()
+    with repo.open_file("root.txt", "w+b") as f:
+        f.write(os.urandom(64))
+    repo.stage(scan=True)
+    repo.commit()
+    repo.push()
+
+    repo.link_add("lk", link_repo.get_id(), "linked")
+    repo.commit()
+    repo.push()
+    repo.layer_add("la", layer_a, "la/")
+    repo.layer_add("lb", layer_b, "lb/")
+
+    assert parse_status_count_json(repo.status(count=True, json=True)) == {
+        "directories": 4,
+        "files": 7,
+    }
+    assert parse_status_count_json(repo.status("lk", count=True, json=True)) == {
+        "directories": 1,
+        "files": 2,
+    }
+    assert parse_status_count_json(repo.status("la", count=True, json=True)) == {
+        "directories": 1,
+        "files": 2,
+    }
+    assert parse_status_count_json(repo.status("lb", count=True, json=True)) == {
+        "directories": 2,
+        "files": 2,
+    }
+    assert parse_status_count_json(
+        repo.status(["lk", "la", "lb"], count=True, json=True)
+    ) == {"directories": 4, "files": 6}
