@@ -401,3 +401,52 @@ def test_unstage_discard_counts(new_lore_repo):
     )
 
     repo.branch_switch("main")
+
+
+@pytest.mark.smoke
+def test_restage_after_unstage_promotes_dirty_add_back_to_staged_add(new_lore_repo):
+    """A staged add that is unstaged becomes a dirty add (the file is still
+    pending — the user just dropped the intent to include it in the next
+    commit). Re-staging that file by name must promote it back to a staged
+    add, even when the file content on disk is byte-identical to the node's
+    stored hash from the original stage. The promotion is what `stage` is
+    supposed to do; the byte-identical filesystem comparison is irrelevant
+    once a node carries the Dirty flag."""
+
+    repo: Lore = new_lore_repo()
+    with repo.open_file("file.txt", "w+") as f:
+        f.write("hello\n")
+
+    repo.stage("file.txt")
+    after_stage = parse_status_json(repo.status(json=True))
+    entry = next(
+        (e for e in after_stage if to_posix(e["path"]) == to_posix("file.txt")), None
+    )
+    assert entry is not None and entry["flagStaged"] is True and entry["flagDirty"] is True, (
+        f"baseline: file.txt should be a staged dirty add after `stage`, got {entry}"
+    )
+
+    repo.unstage(".")
+    after_unstage = parse_status_json(repo.status(json=True))
+    entry = next(
+        (e for e in after_unstage if to_posix(e["path"]) == to_posix("file.txt")), None
+    )
+    assert entry is not None and entry["flagStaged"] is False and entry["flagDirty"] is True, (
+        f"baseline: file.txt should be a dirty add after `unstage`, got {entry}"
+    )
+
+    output = repo.stage("file.txt", json=True)
+    stage_events = parse_jsonl(output, "fileStageFile")
+    assert any(to_posix(e["path"]) == to_posix("file.txt") for e in stage_events), (
+        "re-stage of file.txt did not emit a fileStageFile event — staging was "
+        f"silently skipped. Events: {stage_events}"
+    )
+
+    after_restage = parse_status_json(repo.status(json=True))
+    entry = next(
+        (e for e in after_restage if to_posix(e["path"]) == to_posix("file.txt")), None
+    )
+    assert entry is not None and entry["flagStaged"] is True and entry["flagDirty"] is True, (
+        "after re-stage, file.txt should be a staged dirty add again "
+        f"(equivalent to its post-original-stage state), got {entry}"
+    )

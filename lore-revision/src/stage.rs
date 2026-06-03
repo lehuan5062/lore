@@ -1930,6 +1930,10 @@ pub(crate) async fn stage_node_from_metadata(
         || node.is_staged_merge_unresolved()
     {
         let mut maybe_content_modified = false;
+        // An unstaged-add node is a previously-staged add that the user
+        // unstaged; re-staging must promote it back to a staged add even when
+        // the filesystem content compares equal to the node's stored hash.
+        let was_dirty_add = node.is_dirty_add();
 
         if !metadata.is_dir() {
             let stage_file_node = if !node.is_file() {
@@ -1959,6 +1963,8 @@ pub(crate) async fn stage_node_from_metadata(
                 node.mode = util::fs::metadata_to_mode(&metadata, node.mode);
                 node.size = util::fs::file_size(&metadata);
                 maybe_content_modified = true;
+            } else if was_dirty_add {
+                maybe_content_modified = true;
             }
         } else if node.is_file() || node.mode != 0 {
             node.flags &= !NodeFlags::File;
@@ -1987,11 +1993,17 @@ pub(crate) async fn stage_node_from_metadata(
                 state.mark_dirty();
             }
 
+            let (staged_flag, dirty_flag) = if was_dirty_add {
+                (NodeFlags::StagedAdd, NodeFlags::DirtyAdd)
+            } else {
+                (NodeFlags::StagedModify, NodeFlags::DirtyModify)
+            };
+
             state
                 .node_mark(
                     repository.clone(),
                     node_link.node,
-                    NodeFlags::StagedModify | options.node_flags,
+                    staged_flag | options.node_flags,
                     true, /* Mark dirty */
                 )
                 .await
@@ -2001,7 +2013,7 @@ pub(crate) async fn stage_node_from_metadata(
                 repository.clone(),
                 &state,
                 node_link.node,
-                NodeFlags::DirtyModify,
+                dirty_flag,
                 options.node_flags,
             )
             .await?;
@@ -2017,7 +2029,11 @@ pub(crate) async fn stage_node_from_metadata(
             }
 
             if event_action.is_none() {
-                event_action = Some(LoreFileAction::Keep);
+                event_action = Some(if was_dirty_add {
+                    LoreFileAction::Add
+                } else {
+                    LoreFileAction::Keep
+                });
             }
         }
     }
