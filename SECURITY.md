@@ -33,7 +33,7 @@ Include as much of the following as you can:
 - The Lore version(s) affected (run `lore version` to check)
 - Your operating system and CPU architecture
 - An assessment of the impact — what can an attacker do if this is exploited?
-- Your name and affiliation (for CVE credit — anonymity is also fine; just say so)
+- Your name and affiliation (for convenience - anonymity is also fine; just say so)
 - Your preferred embargo duration, if you have one
 
 ---
@@ -42,13 +42,12 @@ Include as much of the following as you can:
 
 | Milestone | Target |
 | --- | --- |
-| Initial acknowledgement | Within 7 days of receipt |
-| Vulnerability assessment and severity determination | Within 30 days |
-| Patch development and internal testing | Days 30–60 |
-| CVE assignment and embargo notification to downstream parties | Days 60–90 |
-| Public disclosure | By day 90 (sooner for low-severity issues or active exploitation) |
+| Initial acknowledgement | Within 7 business days of receipt |
+| Vulnerability assessment and severity determination | Within 30 business days |
+| Patch development, testing, and release | 30–90 business days |
+| Public disclosure | 90 business days (sooner for low-severity issues or active exploitation) |
 
-If you do not receive an acknowledgement within 7 days, follow up at [security@epicgames.com](mailto:security@epicgames.com) with "Lore security" in the subject line.
+If you do not receive an acknowledgement within 7 business days, follow up at [security@epicgames.com](mailto:security@epicgames.com) with "Lore security" in the subject line.
 
 We may shorten this timeline if we learn the vulnerability is being actively exploited.
 
@@ -60,9 +59,9 @@ We use three tracks based on severity and impact:
 
 **Low-severity or limited-scope issues** — fixed in the normal release cycle, no embargo. The patch release notes credit the reporter.
 
-**Moderate and high-severity issues** — 90-day coordinated disclosure with embargo. We notify downstream distributors and managed service providers 7–14 days before public disclosure, then publish a GitHub Security Advisory alongside the fixed release.
+**Moderate and high-severity issues** — 90-business-day coordinated disclosure with embargo. We publish details alongside the fixed release.
 
-**Critical issues or active exploitation** — immediate dedicated security release. We notify affected parties simultaneously with the public release; there is no advance embargo window.
+**Critical issues or active exploitation** — immediate dedicated security release. There is no advance embargo window.
 
 ---
 
@@ -87,14 +86,6 @@ The following are generally out of scope:
 ## Supported versions
 
 Security patches are provided for the two most recent stable releases. Older releases do not receive security backports.
-
----
-
-## CVE coordination
-
-Epic InfoSec coordinates CVE requests with MITRE on our behalf. Once a vulnerability is confirmed, we request a CVE and include the identifier in the published security advisory.
-
-Reporters are credited in the CVE entry and in release notes by default. If you prefer to remain anonymous, note that in your report.
 
 ---
 
