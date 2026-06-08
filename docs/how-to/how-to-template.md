@@ -8,7 +8,7 @@ How-To template. Verb-first H1 (per canon: "Set up zsh completions",
 <One paragraph: when you'd reach for this guide and the starting state
 it assumes.>
 
-## Before you start
+## Prerequisites
 
 - <Assumed installed tool or version.>
 - <Assumed prior state.>

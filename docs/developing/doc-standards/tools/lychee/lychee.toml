@@ -87,4 +87,9 @@ exclude = [
     "^https?://127\\.0\\.0\\.1(:[0-9]+)?(/|$)",
     "^https?://lorelocal(:[^/]*)?(/|$)",
     "^https?://example\\.com(/|$)",
+
+    # MkDocs strips em dashes when slugifying "Step N — …" headings; lychee's
+    # anchor-generation keeps them, so fragment links to those headings are
+    # reported as not found. The anchors are valid in the rendered site.
+    "quickstart\\.md#step-[0-9]+-",
 ]

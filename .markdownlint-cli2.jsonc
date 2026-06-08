@@ -21,7 +21,13 @@
     // markdownlint's default counts the frontmatter title as a heading and
     // flags the body H1 as a duplicate. Disable the frontmatter scan so only
     // body H1s count toward the "single H1" rule.
-    "MD025": { "front_matter_title": "" }
+    "MD025": { "front_matter_title": "" },
+
+    // MD046 fires false positives on fenced code blocks inside Material tab
+    // content: the indented tab delimiters look like the first code-block style
+    // seen, so all subsequent fenced blocks in the file are flagged. Fenced
+    // with a language tag is the required style per format.md.
+    "MD046": false
   },
   "globs": [
     "docs/**/*.md",
