@@ -193,9 +193,16 @@ impl From<quinn::ConnectionStats> for ConnectionStats {
 }
 
 #[derive(Clone)]
+pub enum CongestionAlgorithm {
+    Bbr,
+    Cubic,
+}
+
+#[derive(Clone)]
 pub struct TransportConfig {
     pub max_bytes_bandwidth_per_second: u64,
     pub expected_rtt_ms: u64,
+    pub congestion_algorithm: CongestionAlgorithm,
 }
 
 /// When working within a QUIC connection, these are the opportunities
@@ -728,7 +735,12 @@ pub async fn connect(
         .max_rtt(Duration::from_millis(MAX_RTT_MS))
         .ack_frequency_config(Some(ack_freq_config));
 
-    transport_config.congestion_controller_factory(Arc::new(congestion::BbrConfig::default()));
+    let congestion_controller: Arc<dyn congestion::ControllerFactory + Send + Sync + 'static> =
+        match transport.congestion_algorithm {
+            CongestionAlgorithm::Bbr => Arc::new(congestion::BbrConfig::default()),
+            CongestionAlgorithm::Cubic => Arc::new(congestion::CubicConfig::default()),
+        };
+    transport_config.congestion_controller_factory(congestion_controller);
 
     lore_debug!("QUIC transport config: {transport_config:?}");
 

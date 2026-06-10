@@ -12,6 +12,7 @@ use lore_telemetry::LabelArray;
 use lore_telemetry::observe::observe_result;
 use lore_transport::ProtocolError;
 use lore_transport::quic::client::CertificateSettings;
+use lore_transport::quic::client::CongestionAlgorithm;
 use lore_transport::quic::client::ConnectionStats;
 use lore_transport::quic::client::DEFAULT_EXPECTED_RTT_MS;
 use lore_transport::quic::client::TransportConfig;
@@ -54,6 +55,7 @@ impl QuicClientFactory {
             transport_config: TransportConfig {
                 max_bytes_bandwidth_per_second: DEFAULT_MAX_BYTES_BANDWIDTH_PER_SEC,
                 expected_rtt_ms: DEFAULT_EXPECTED_RTT_MS,
+                congestion_algorithm: CongestionAlgorithm::Bbr,
             },
             command_behavior: CommandBehavior {
                 message_limit: DEFAULT_CLIENT_MESSAGE_LIMIT,

@@ -16,6 +16,7 @@ use lore_revision::store::composite::replica_factory::ReplicaFactory;
 use lore_revision::store::composite::replica_factory::ReplicaTargets;
 use lore_revision::util::time::RetryPolicy;
 use lore_transport::quic::client::CertificateSettings as QuicCertificateSettings;
+use lore_transport::quic::client::CongestionAlgorithm;
 use lore_transport::quic::client::DEFAULT_EXPECTED_RTT_MS;
 use opentelemetry::KeyValue;
 use serde::Deserialize;
@@ -152,10 +153,30 @@ impl ReplicationStoreTargetFactory {
         } else {
             None
         };
-        let rtt_ms = match peer_info.locality {
-            Locality::SameRegion => 10,
-            // todo(plockhart) configure expected_rtt_ms based off latency to replication target
-            Locality::OtherRegion => DEFAULT_EXPECTED_RTT_MS,
+
+        let rtt_ms;
+        let congestion_algorithm;
+        match peer_info.locality {
+            Locality::SameRegion => {
+                rtt_ms = 10;
+                // Communication within a region will have no packet loss
+                // so we don't need to worry about Cubic's aggressive ramp down
+                // of cwnd in the event of packet loss - we don't see it happening.
+                // The benefit of Cubic is that it only adjusts the cwnd in the event of
+                // packet loss. So quiet periods of time don't inadvertently scale down
+                // the cwnd then get blindsided by a large get/put message causing latency spikes.
+                // We want same region replication to be as fast as possible
+                congestion_algorithm = CongestionAlgorithm::Cubic;
+            }
+            Locality::OtherRegion => {
+                // todo(plockhart) configure expected_rtt_ms based off latency to replication target
+                rtt_ms = DEFAULT_EXPECTED_RTT_MS;
+                // We see packet loss in cross region communication. Bbr readjusts the cwnd within
+                // a few cycles of RTT, much faster than Cubic at recoverying from packet loss, at
+                // the expensive that periodically the internals of the algorithm ramp down cwnd
+                // based off bandwidth usage (which means quiet periods inadvertently reduce cwnd)
+                congestion_algorithm = CongestionAlgorithm::Bbr;
+            }
         };
 
         let mut factory =
@@ -165,6 +186,7 @@ impl ReplicationStoreTargetFactory {
         factory.quic_max_reconnects = Some(5);
         factory.sni_override = sni_override;
         factory.transport_config.expected_rtt_ms = rtt_ms;
+        factory.transport_config.congestion_algorithm = congestion_algorithm;
 
         let container_config = ClientContainerConfig {
             regenerate_retry_policy: RetryPolicy::builder()

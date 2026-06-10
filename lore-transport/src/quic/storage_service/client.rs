@@ -49,6 +49,7 @@ use super::super::storage_service::MAX_CHUNK_SIZE;
 use super::super::storage_service::auth::StorageClientAuth;
 use crate::connection::Connection;
 use crate::error::ProtocolError;
+use crate::quic::client::CongestionAlgorithm;
 use crate::traits::Storage;
 
 const INFLIGHT_COMMAND_LIMIT: usize = 10000;
@@ -132,6 +133,7 @@ impl StorageClient {
         let transport_config = TransportConfig {
             max_bytes_bandwidth_per_second: MAX_BYTES_BANDWIDTH_PER_SEC,
             expected_rtt_ms: DEFAULT_EXPECTED_RTT_MS,
+            congestion_algorithm: CongestionAlgorithm::Bbr,
         };
 
         lore_trace!("QUIC connecting to {remote_url} for repository {repository}");

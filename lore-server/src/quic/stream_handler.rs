@@ -660,6 +660,7 @@ mod tests {
     use lore_transport::quic::QuicOpCode;
     use lore_transport::quic::client::CertificateSettings;
     use lore_transport::quic::client::ClientCerts;
+    use lore_transport::quic::client::CongestionAlgorithm;
     use lore_transport::quic::client::DEFAULT_EXPECTED_RTT_MS;
     use lore_transport::quic::client::ServiceClient;
     use lore_transport::quic::client::TransportConfig;
@@ -1084,6 +1085,7 @@ mod tests {
                     TransportConfig {
                         max_bytes_bandwidth_per_second: 1_000_000,
                         expected_rtt_ms: DEFAULT_EXPECTED_RTT_MS,
+                        congestion_algorithm: CongestionAlgorithm::Bbr,
                     },
                     CommandBehavior {
                         message_limit: 10,
@@ -1169,6 +1171,7 @@ mod tests {
                     TransportConfig {
                         max_bytes_bandwidth_per_second: 1_000_000,
                         expected_rtt_ms: DEFAULT_EXPECTED_RTT_MS,
+                        congestion_algorithm: CongestionAlgorithm::Bbr,
                     },
                     CommandBehavior {
                         message_limit: 10,
@@ -1243,6 +1246,7 @@ mod tests {
                     TransportConfig {
                         max_bytes_bandwidth_per_second: 1_000_000,
                         expected_rtt_ms: DEFAULT_EXPECTED_RTT_MS,
+                        congestion_algorithm: CongestionAlgorithm::Bbr,
                     },
                     CommandBehavior {
                         message_limit: 10,
