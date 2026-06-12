@@ -7,6 +7,7 @@ use lore_error_set::prelude::*;
 
 use crate::branch;
 use crate::branch::BranchError;
+use crate::lore::execution_context;
 use crate::repository::RepositoryContext;
 use crate::state;
 use crate::util::path::RelativePath;
@@ -46,7 +47,9 @@ pub async fn diff(
         .await
         .unwrap_or_default();
 
-    if let Ok(remote) = repository.remote().await {
+    if !execution_context().globals().local()
+        && let Ok(remote) = repository.remote().await
+    {
         let source_task = {
             let remote = remote.clone();
             let source_branch = source_branch.clone();
