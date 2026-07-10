@@ -25,13 +25,21 @@ mod tests {
     use lore_base::runtime::runtime;
     use lore_base::types::Context;
     use lore_revision::branch;
+    use lore_revision::commit;
+    use lore_revision::commit::CommitOptions;
+    use lore_revision::file;
     use lore_revision::filter::FilterMode;
+    use lore_revision::interface::LoreArray;
+    use lore_revision::interface::LoreString;
     use lore_revision::lore::RepositoryId;
+    use lore_revision::node::NodeFlags;
     use lore_revision::repository;
     use lore_revision::repository::DOT_LORE;
     use lore_revision::repository::RepositoryContext;
     use lore_revision::repository::RepositoryFormat;
     use lore_revision::repository::load_filter;
+    use lore_revision::stage;
+    use lore_revision::stage::StageOptions;
     use lore_revision::state;
     use lore_transport::ProtocolError;
 
@@ -54,13 +62,14 @@ mod tests {
     }
 
     /// Build a fresh on-disk repository at `path` with no commits (revision 0)
-    /// and return a write-capable [`RepositoryContext`] for it.
+    /// and return a write-capable [`RepositoryContext`] for it, along with the
+    /// [`repository::RepositoryWriteToken`] needed to stage/commit into it.
     async fn create_repository(
         path: &Path,
         repository_id: RepositoryId,
         immutable_store: Arc<dyn lore_storage::ImmutableStore>,
         mutable_store: Arc<dyn lore_storage::MutableStore>,
-    ) -> Arc<RepositoryContext> {
+    ) -> (Arc<RepositoryContext>, repository::RepositoryWriteToken) {
         std::fs::create_dir_all(path).expect("Create repository directory failed");
         let default_branch = Context::from(uuid::Uuid::now_v7());
         let write_token = repository::RepositoryWriteToken::acquire(path).await;
@@ -92,7 +101,7 @@ mod tests {
         lore_revision::instance::store_current_anchor_branch(&repository, default_branch)
             .await
             .expect("Failed to store anchor branch");
-        repository
+        (repository, write_token)
     }
 
     /// Reconcile the working tree against the staged state, mutating `state_staged`
@@ -130,7 +139,7 @@ mod tests {
             .spawn(LORE_CONTEXT.scope(execution.clone(), async move {
                 let tempdir = generate_tempdir();
                 let path = tempdir.to_path_buf();
-                let repository = create_repository(
+                let (repository, _write_token) = create_repository(
                     path.as_path(),
                     repository_id,
                     immutable_store.clone(),
@@ -196,7 +205,7 @@ mod tests {
             .spawn(LORE_CONTEXT.scope(execution.clone(), async move {
                 let tempdir = generate_tempdir();
                 let path = tempdir.to_path_buf();
-                let repository = create_repository(
+                let (repository, _write_token) = create_repository(
                     path.as_path(),
                     repository_id,
                     immutable_store.clone(),
@@ -248,6 +257,102 @@ mod tests {
                         .all(|c| !c.path.as_str().starts_with("nested")),
                     "zombie entry for a staged directory turned nested repository must be \
                      discarded, found: {:?}",
+                    changes
+                        .iter()
+                        .map(|c| c.path.as_str().to_string())
+                        .collect::<Vec<_>>()
+                );
+            }))
+            .await
+            .expect("Test task panicked");
+    }
+
+    /// A directory that was already *committed* into the parent tree keeps
+    /// being tracked, and its contents keep being descended into and indexed,
+    /// even after a `.lore/` control directory appears inside it —
+    /// mirroring how git does not silently untrack previously committed
+    /// content just because a nested `.git` shows up. The auto-discard
+    /// ("zombie" cleanup) only applies to never-committed staged entries;
+    /// untracking a committed nested repository is left to an explicit user
+    /// action, not this scan.
+    #[tokio::test]
+    async fn committed_directory_becoming_nested_repository_stays_tracked() {
+        let (immutable_store, mutable_store, execution) =
+            test_store_create().await.expect("Failed to create stores");
+        let repository_id = RepositoryId::from(uuid::Uuid::now_v7());
+
+        runtime()
+            .spawn(LORE_CONTEXT.scope(execution.clone(), async move {
+                let tempdir = generate_tempdir();
+                let path = tempdir.to_path_buf();
+                let (repository, write_token) = create_repository(
+                    path.as_path(),
+                    repository_id,
+                    immutable_store.clone(),
+                    mutable_store.clone(),
+                )
+                .await;
+
+                // A plain directory with a file, staged and committed into the
+                // parent tree — so it is present in state_current, not just
+                // state_staged.
+                std::fs::create_dir(path.join("nested").as_path())
+                    .expect("Create nested directory failed");
+                let _ = create_file(path.join("nested").join("inner.txt").as_path(), &[1, 2, 3]);
+
+                let paths = LoreArray::from_vec(vec![LoreString::from(&path)]);
+                file::stage::stage(
+                    repository.clone(),
+                    &write_token,
+                    paths,
+                    StageOptions {
+                        case_change: stage::StageCaseChange::Error,
+                        node_flags: NodeFlags::NoFlags,
+                        file_id: None,
+                        no_children: false,
+                        scan: true,
+                    },
+                )
+                .await
+                .expect("Stage failed");
+
+                Box::pin(commit::commit(
+                    repository.clone(),
+                    &write_token,
+                    CommitOptions::new("Commit nested directory".to_string()),
+                ))
+                .await
+                .expect("Commit failed");
+
+                let (current_revision, _branch) =
+                    lore_revision::instance::load_current_anchor(&repository)
+                        .await
+                        .expect("Failed to load current anchor");
+                let state_current = state::State::deserialize(repository.clone(), current_revision)
+                    .await
+                    .expect("Failed to deserialize current state");
+                let state_staged = state::State::deserialize(repository.clone(), current_revision)
+                    .await
+                    .expect("Failed to deserialize staged state");
+
+                // The already-committed directory becomes a nested repository
+                // root, as when `lore repository create` runs inside it.
+                std::fs::create_dir(path.join("nested").join(DOT_LORE).as_path())
+                    .expect("Create nested/.lore directory failed");
+
+                // Modify the already-tracked file so an "unmodified, no diff"
+                // scan result can't be mistaken for the boundary having
+                // silently swallowed it: if the parent still descends into
+                // and indexes `nested/`, this modification must surface.
+                let _ = create_file(path.join("nested").join("inner.txt").as_path(), &[4, 5, 6]);
+
+                let changes = scan(repository.clone(), state_staged, state_current).await;
+                assert!(
+                    changes
+                        .iter()
+                        .any(|c| c.path.as_str() == "nested/inner.txt"),
+                    "a directory committed before becoming a nested repository root \
+                     must stay tracked, with its contents still indexed, found: {:?}",
                     changes
                         .iter()
                         .map(|c| c.path.as_str().to_string())
