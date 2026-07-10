@@ -2806,3 +2806,80 @@ def test_dirty_add_repeated_is_idempotent(new_lore_repo):
     repo.dirty(added, offline=True)
     check("second dirty, plain status")
     check("second dirty, --check-dirty", check_dirty=True)
+
+
+@pytest.mark.smoke
+def test_scan_discards_reverted_uncommitted_directory(new_lore_repo):
+    """Verify that scanning properly discards reverted uncommitted directories.
+
+    A directory is staged, then removed from disk before any commit. Scanning
+    should discard this "zombie" directory entry so status shows no stray
+    deletes and matches the filesystem state. Verify via JSON output that:
+    - No spurious delete entries appear for the discarded directory
+    - No duplicate entries are reported
+    - Other concurrent changes remain correctly reported
+    """
+    repo: Lore = new_lore_repo()
+
+    # Create initial commit with a base file
+    with repo.open_file("base.txt", "w+") as f:
+        f.write("base file\n")
+    repo.stage(scan=True, offline=True)
+    repo.commit(offline=True)
+
+    # Stage a directory with files inside it
+    os.makedirs(os.path.join(repo.path, "reverted_dir", "subdir"), exist_ok=True)
+    with repo.open_file("reverted_dir/file1.txt", "w+") as f:
+        f.write("file1\n")
+    with repo.open_file("reverted_dir/subdir/file2.txt", "w+") as f:
+        f.write("file2\n")
+    repo.stage(scan=True, offline=True)
+
+    # Create another unrelated change to verify it's still reported
+    with repo.open_file("other_change.txt", "w+") as f:
+        f.write("other\n")
+    repo.dirty("other_change.txt", offline=True)
+
+    # Remove the reverted directory from disk before committing
+    # (this simulates user removing a staged directory)
+    import shutil
+    shutil.rmtree(os.path.join(repo.path, "reverted_dir"))
+
+    # Run status scan to detect the directory was removed and discard it
+    output = repo.status(json=True, offline=True)
+    status_entries = parse_status_json(output)
+
+    # Extract all paths and actions
+    file_entries = [e for e in status_entries if e.get("type") == "file"]
+    paths_by_action = {}
+    for entry in file_entries:
+        action = entry.get("action", "unknown")
+        path = to_posix(entry.get("path", ""))
+        if action not in paths_by_action:
+            paths_by_action[action] = []
+        paths_by_action[action].append(path)
+
+    # Verify no spurious deletes for the discarded directory
+    delete_paths = paths_by_action.get("delete", [])
+    assert not any(
+        "reverted_dir" in p for p in delete_paths
+    ), f"Should not report deletes for discarded directory, got: {delete_paths}"
+
+    # Verify no duplicate entries
+    all_paths = [to_posix(e.get("path", "")) for e in file_entries]
+    assert len(all_paths) == len(set(all_paths)), (
+        f"Duplicate entries reported: {sorted(all_paths)}"
+    )
+
+    # Verify the unrelated change is still properly reported
+    other_entries = [p for p in all_paths if "other_change" in p]
+    assert len(other_entries) == 1, (
+        f"other_change.txt should be reported once, got: {other_entries}"
+    )
+    other_entry = next(e for e in file_entries if "other_change" in e.get("path", ""))
+    assert other_entry.get("action") == "add", (
+        f"other_change.txt should be marked as add: {other_entry}"
+    )
+    assert other_entry.get("flagDirty") is True, (
+        f"other_change.txt should be flagDirty: {other_entry}"
+    )

@@ -5970,14 +5970,7 @@ async fn diff_filesystem_directory_walk(
             continue;
         };
 
-        // A directory node that exists in state_from but neither in state_current
-        // (never committed) nor on disk is a reverted, uncommitted add: the
-        // directory was staged and then removed from disk before any commit,
-        // together with whatever of its contents had been staged under it.
-        // Reporting it as a `Delete` is meaningless because there is no committed
-        // base to delete from, and no mutation verb can clear it (the "zombie"
-        // entry). Discard the whole subtree so state_staged matches the filesystem
-        // instead, the same way a reverted single-file add is discarded below.
+        // Discard reverted uncommitted directories (staged then removed from disk before commit) to match the filesystem.
         if ctx.scan_dirty && from_node.node.is_directory() {
             let in_current = current_node_list
                 .children
