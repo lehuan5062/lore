@@ -10,6 +10,7 @@ All tests use --json structured output to validate event data.
 import json
 import logging
 import os
+import shutil
 
 import pytest
 from lore_parsers import parse_jsonl, parse_status_json, parse_status_summary_json
@@ -2855,7 +2856,6 @@ def test_scan_discards_reverted_uncommitted_directory(new_lore_repo):
 
     # Remove the staged directory from disk before committing
     # (this simulates user removing a staged directory)
-    import shutil
     shutil.rmtree(os.path.join(repo.path, "reverted_dir"))
 
     def reverted_dir_entries(entries: list[dict]) -> list[str]:
