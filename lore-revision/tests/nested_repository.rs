@@ -181,4 +181,80 @@ mod tests {
             .await
             .expect("Test task panicked");
     }
+
+    /// A directory already staged as a normal dirty-add that then becomes a
+    /// nested repository root (a `.lore/` appears inside it) is a stale
+    /// "zombie" entry: the next scan must discard the staged subtree instead
+    /// of continuing to index the nested repository's contents.
+    #[tokio::test]
+    async fn staged_directory_becoming_nested_repository_is_discarded() {
+        let (immutable_store, mutable_store, execution) =
+            test_store_create().await.expect("Failed to create stores");
+        let repository_id = RepositoryId::from(uuid::Uuid::now_v7());
+
+        runtime()
+            .spawn(LORE_CONTEXT.scope(execution.clone(), async move {
+                let tempdir = generate_tempdir();
+                let path = tempdir.to_path_buf();
+                let repository = create_repository(
+                    path.as_path(),
+                    repository_id,
+                    immutable_store.clone(),
+                    mutable_store.clone(),
+                )
+                .await;
+
+                // A plain child directory with content: the first scan stages
+                // it as an ordinary dirty-add subtree.
+                std::fs::create_dir(path.join("nested").as_path())
+                    .expect("Create nested directory failed");
+                let _ = create_file(path.join("nested").join("inner.txt").as_path(), &[9, 9, 9]);
+
+                let (current_revision, _branch) =
+                    lore_revision::instance::load_current_anchor(&repository)
+                        .await
+                        .expect("Failed to load current anchor");
+                let state_current = state::State::deserialize(repository.clone(), current_revision)
+                    .await
+                    .expect("Failed to deserialize current state");
+                let state_staged = state::State::deserialize(repository.clone(), current_revision)
+                    .await
+                    .expect("Failed to deserialize staged state");
+
+                let changes = scan(
+                    repository.clone(),
+                    state_staged.clone(),
+                    state_current.clone(),
+                )
+                .await;
+                assert!(
+                    changes
+                        .iter()
+                        .any(|c| c.path.as_str().starts_with("nested")),
+                    "expected the plain directory to be indexed by the first scan"
+                );
+
+                // The directory becomes a nested repository root — as when
+                // `lore repository create` runs inside a staged directory.
+                std::fs::create_dir(path.join("nested").join(DOT_LORE).as_path())
+                    .expect("Create nested/.lore directory failed");
+
+                // The rescan discards the stale staged entry instead of
+                // continuing to index the nested repository's contents.
+                let changes = scan(repository.clone(), state_staged, state_current).await;
+                assert!(
+                    changes
+                        .iter()
+                        .all(|c| !c.path.as_str().starts_with("nested")),
+                    "zombie entry for a staged directory turned nested repository must be \
+                     discarded, found: {:?}",
+                    changes
+                        .iter()
+                        .map(|c| c.path.as_str().to_string())
+                        .collect::<Vec<_>>()
+                );
+            }))
+            .await
+            .expect("Test task panicked");
+    }
 }

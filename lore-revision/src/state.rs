@@ -5680,21 +5680,6 @@ async fn diff_filesystem_directory_walk(
             .push_into_buf(item.name.as_str())
             .freeze();
 
-        // A child directory that is itself a Lore working copy (it contains its
-        // own `.lore`/`.urc` control directory) is an implicit boundary: do not
-        // descend into or index it, mirroring how git ignores nested `.git`
-        // directories. Skipping it keeps the nested repository's contents out of
-        // the parent's tree. A node previously indexed for it (from before this
-        // boundary check existed) is left unmatched and so falls through to the
-        // delete pass below, where an empty never-committed entry is discarded —
-        // clearing a pre-existing stale "zombie" entry on the next scan.
-        if item.metadata.is_dir()
-            && is_nested_repository_root(ctx.from.repository.require_path()?, &item_path)
-        {
-            lore_trace!("Skipping nested repository root {item_path}");
-            continue;
-        }
-
         if ctx.from.repository.filter.emit_excludes(
             &item_path,
             item.metadata.is_dir(),
@@ -5710,6 +5695,19 @@ async fn diff_filesystem_directory_walk(
         {
             index
         } else {
+            // A new child directory that is itself a Lore working copy (it
+            // contains its own `.lore`/`.urc` control directory) is an implicit
+            // boundary: do not descend into or index it, mirroring how git
+            // ignores nested `.git` directories. Checked only for unmatched
+            // items — a directory tracked in the parent's merkle tree is by
+            // definition not a boundary — so the normal directory descent pays
+            // no extra filesystem metadata queries.
+            if item.metadata.is_dir()
+                && is_nested_repository_root(ctx.from.repository.require_path()?, &item_path)
+            {
+                lore_trace!("Skipping nested repository root {item_path}");
+                continue;
+            }
             new_file_list.push(item);
             continue;
         };
@@ -5861,6 +5859,21 @@ async fn diff_filesystem_directory_walk(
                 .await
             });
         } else if was_directory && is_directory {
+            // A staged never-committed directory that turns out to be a nested
+            // repository root is a stale "zombie" entry (indexed before the
+            // boundary check above existed, or a repository created inside a
+            // just-staged directory). Un-match it so it falls through to the
+            // delete pass below, which discards the never-committed subtree.
+            // Restricting the probe to the staged-only case keeps the normal
+            // committed-directory descent free of extra metadata queries.
+            if ctx.scan_dirty
+                && !current_node_id.is_valid_node_id()
+                && is_nested_repository_root(ctx.from.repository.require_path()?, &item_path)
+            {
+                lore_trace!("Discarding zombie entry for nested repository root {item_path}");
+                node_list_found[current_index] = false;
+                continue;
+            }
             if ctx.scan_dirty && !current_node_id.is_valid_node_id() {
                 // Re-emit a staged dirty-add directory (in staged, absent from
                 // the current revision) as a single node so repeated scans stay
