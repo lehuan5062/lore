@@ -2835,13 +2835,11 @@ def test_scan_discards_reverted_uncommitted_directory(new_lore_repo):
     """
     repo: Lore = new_lore_repo()
 
-    # Create initial commit with a base file
     with repo.open_file("base.txt", "w+") as f:
         f.write("base file\n")
     repo.stage(scan=True, offline=True)
     repo.commit(offline=True)
 
-    # Stage a directory with files inside it
     os.makedirs(os.path.join(repo.path, "reverted_dir", "subdir"), exist_ok=True)
     with repo.open_file("reverted_dir/file1.txt", "w+") as f:
         f.write("file1\n")
@@ -2849,42 +2847,35 @@ def test_scan_discards_reverted_uncommitted_directory(new_lore_repo):
         f.write("file2\n")
     repo.stage(scan=True, offline=True)
 
-    # Create another unrelated change to verify it's still reported
     with repo.open_file("other_change.txt", "w+") as f:
         f.write("other\n")
     repo.dirty("other_change.txt", offline=True)
 
-    # Remove the staged directory from disk before committing
-    # (this simulates user removing a staged directory)
+    # Reverts the staged add: the directory is now staged but neither
+    # committed nor present on disk.
     shutil.rmtree(os.path.join(repo.path, "reverted_dir"))
 
     def reverted_dir_entries(entries: list[dict]) -> list[str]:
         paths = [to_posix(e.get("path", "")) for e in entries]
         return [p for p in paths if p == "reverted_dir" or p.startswith("reverted_dir/")]
 
-    # First scan: reconciles staged state against the filesystem and queues
-    # the zombie directory for discard.
+    # The discard queued by this scan is only observable on a later call
+    # (see docstring), so its own output isn't asserted on.
     get_status_files(repo, scan=True)
 
-    # Second call observes the persisted result of the discard.
     entries = get_status_files(repo, scan=True)
     all_paths = [to_posix(e.get("path", "")) for e in entries]
 
-    # The reverted directory and its staged contents must be fully discarded --
-    # not reported under any action (add, delete, or otherwise), and not just
-    # absent from a `type == "file"` filter that would miss the directory
-    # node itself.
+    # No `type` filter here: the directory node itself, not just the files
+    # under it, is what the discard logic operates on.
     assert not reverted_dir_entries(entries), (
         f"Reverted directory should be fully discarded from status, "
         f"got: {reverted_dir_entries(entries)}"
     )
-
-    # Verify no duplicate entries
     assert len(all_paths) == len(set(all_paths)), (
         f"Duplicate entries reported: {sorted(all_paths)}"
     )
 
-    # Verify the unrelated change is still properly reported exactly once
     other_entries = [e for e in entries if to_posix(e.get("path", "")) == "other_change.txt"]
     assert len(other_entries) == 1, (
         f"other_change.txt should be reported once, got: {other_entries}"
@@ -2897,7 +2888,6 @@ def test_scan_discards_reverted_uncommitted_directory(new_lore_repo):
         f"other_change.txt should be flagDirty: {other_entry}"
     )
 
-    # A third scan must not resurrect the discarded directory or duplicate it
     entries_again = get_status_files(repo, scan=True)
     assert not reverted_dir_entries(entries_again), (
         f"Later scan resurrected the reverted directory: "
