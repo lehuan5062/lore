@@ -812,7 +812,7 @@ const REMOTE_RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 ///
 /// Resolves the latest revision and authorization status of a branch on the
 /// configured remote, timing out after the given deadline. On timeout or remote
-/// unavailability, degrades to (None, false, false) — same shape as NoRemote —
+/// unavailability, degrades to (None, false, false) — same shape as `NoRemote` —
 /// ensuring an unreachable remote never stalls a local status read.
 ///
 /// # Arguments
