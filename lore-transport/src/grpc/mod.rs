@@ -69,6 +69,7 @@ pub const REVISION_LIST_STRATEGY_HEADER: &str = "x-lore-revision-list-strategy";
 const RETRY_START_BACKOFF_MS: u64 = 50;
 const RETRY_MAX_BACKOFF_MS: u64 = 10_000;
 const RETRY_MAX_ATTEMPTS: usize = 60;
+const GRPC_CONNECT_TIMEOUT_SECS: u64 = 5;
 
 fn grpc_retry() -> crate::util::Retry {
     crate::util::retry(
@@ -574,6 +575,8 @@ async fn connect_to_endpoint(remote: &str) -> Result<Channel, ProtocolError> {
         .internal_with(|| format!("setting user agent for {remote}"))?;
 
     lore_trace!("Set user agent to {user_agent}");
+
+    endpoint = endpoint.connect_timeout(Duration::from_secs(GRPC_CONNECT_TIMEOUT_SECS));
 
     // Silent propagation of connection errors
     let channel = endpoint

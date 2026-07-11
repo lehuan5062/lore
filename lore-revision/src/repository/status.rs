@@ -806,6 +806,55 @@ async fn count_subtrees(roots: Vec<CountWork>) -> Result<(u64, u64), StatusError
     Ok((directories, files))
 }
 
+const REMOTE_RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Time-boxed remote branch resolution that degrades gracefully on timeout.
+///
+/// Resolves the latest revision and authorization status of a branch on the
+/// configured remote, timing out after the given deadline. On timeout or remote
+/// unavailability, degrades to (None, false, false) — same shape as NoRemote —
+/// ensuring an unreachable remote never stalls a local status read.
+///
+/// # Arguments
+///
+/// * `repository` — repository context with the configured remote.
+/// * `branch_id` — the branch to query on the remote.
+/// * `deadline` — maximum time to wait for remote resolution.
+///
+/// # Returns
+///
+/// A 3-tuple `(latest, authorized, available)` where:
+/// - `latest` is the remote branch's latest revision hash, or None if unresolved.
+/// - `authorized` is true iff the remote query returned an authoritative answer.
+/// - `available` is true iff the remote connected and responded within the deadline
+///   (even if with a non-branch-not-found error; a reachable server that errors is not unavailable).
+async fn resolve_remote_latest(
+    repository: &Arc<RepositoryContext>,
+    branch_id: BranchId,
+    deadline: std::time::Duration,
+) -> (Option<Hash>, bool, bool) {
+    async fn inner(
+        repository: &Arc<RepositoryContext>,
+        branch_id: BranchId,
+    ) -> (Option<Hash>, bool, bool) {
+        let remote = match repository.remote().await {
+            Ok(r) => r,
+            Err(_) => return (None, false, false),
+        };
+
+        match branch::load_remote(remote, repository.id, branch_id).await {
+            Ok(status) => (Some(status.latest), true, true),
+            Err(err) if err.is_branch_not_found() => (None, true, true),
+            Err(_) => (None, false, true),
+        }
+    }
+
+    match tokio::time::timeout(deadline, inner(repository, branch_id)).await {
+        Ok((latest, authorized, available)) => (latest, authorized, available),
+        Err(_) => (None, false, false),
+    }
+}
+
 pub async fn status(
     repository: Arc<RepositoryContext>,
     paths: Option<Vec<RelativePath>>,
@@ -907,14 +956,8 @@ pub async fn status(
 
     // Authorized only on an authoritative answer — a latest revision
     // or branch not found; proving the identity is authorized and has access
-    let (remote_latest, remote_authorized) = match repository.remote().await {
-        Ok(remote) => match branch::load_remote(remote, repository.id, branch.id).await {
-            Ok(status) => (Some(status.latest), true),
-            Err(err) if err.is_branch_not_found() => (None, true),
-            Err(_) => (None, false),
-        },
-        Err(_) => (None, false),
-    };
+    let (remote_latest, remote_authorized, remote_available) =
+        resolve_remote_latest(&repository, branch.id, REMOTE_RESOLVE_TIMEOUT).await;
 
     let remote_state = if let Some(remote_latest) = remote_latest {
         state::State::deserialize(repository.clone(), remote_latest)
@@ -1080,7 +1123,7 @@ pub async fn status(
             },
             local_ahead,
             remote_ahead,
-            repository.remote().await.is_ok(),
+            remote_available,
             remote_authorized,
             remote_latest.is_some(),
         );
@@ -1457,4 +1500,69 @@ pub async fn status(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod remote_resolve_tests {
+    use std::future::pending;
+
+    use futures::FutureExt;
+
+    use super::*;
+    use crate::lore::BranchId;
+    use crate::repository::RemoteState;
+    use crate::repository::RepositoryContext;
+    use crate::repository::RepositoryFormat;
+    use crate::repository::create_client_memory_stores;
+
+    async fn context_with_state(state: RemoteState) -> Arc<RepositoryContext> {
+        let (immutable, mutable) = create_client_memory_stores()
+            .await
+            .expect("in-memory stores should be creatable");
+        Arc::new(RepositoryContext::new_with_state(
+            None,
+            immutable,
+            mutable,
+            crate::lore::RepositoryId::default(),
+            crate::instance::InstanceId::default(),
+            state,
+            Arc::default(),
+            RepositoryFormat::Lore,
+        ))
+    }
+
+    #[tokio::test]
+    async fn hung_remote_resolution_times_out_and_degrades() {
+        let never: futures::future::BoxFuture<'static, _> = pending().boxed();
+        let shared = never.shared();
+        let ctx = context_with_state(RemoteState::Pending(shared)).await;
+
+        let result = resolve_remote_latest(
+            &ctx,
+            BranchId::default(),
+            std::time::Duration::from_millis(10),
+        )
+        .await;
+
+        assert_eq!(
+            result,
+            (None, false, false),
+            "timeout should degrade to unavailable"
+        );
+    }
+
+    #[tokio::test]
+    async fn offline_remote_resolves_to_unavailable() {
+        let ctx = context_with_state(RemoteState::Offline).await;
+
+        let result =
+            resolve_remote_latest(&ctx, BranchId::default(), std::time::Duration::from_secs(3))
+                .await;
+
+        assert_eq!(
+            result,
+            (None, false, false),
+            "offline should degrade to unavailable"
+        );
+    }
 }
