@@ -5636,9 +5636,8 @@ async fn emit_filesystem_subtree_deletes(
 /// `node_list_found`, spawning subtree-recursion tasks into `tasks`, and
 /// queueing stale directory nodes into `pending_discards`. Items with no
 /// match in `node_list` are buffered and processed as new adds once the
-/// receiver is drained. Must only be called from [`diff_filesystem_directory`],
-/// which sorts `node_list` and `current_node_list` by name beforehand — the
-/// binary searches here assume that ordering.
+/// receiver is drained. `node_list` and `current_node_list` must be sorted by
+/// name; the binary searches here rely on that ordering.
 #[allow(clippy::too_many_arguments)]
 async fn diff_filesystem_directory_walk(
     ctx: &DiffFilesystemContext,
@@ -5970,7 +5969,8 @@ async fn diff_filesystem_directory_walk(
             continue;
         };
 
-        // Discard reverted uncommitted directories (staged then removed from disk before commit) to match the filesystem.
+        // Directory staged then removed from disk before any commit: discard it
+        // rather than emit a Delete, since nothing committed backs it.
         if ctx.scan_dirty && from_node.node.is_directory() {
             let in_current = current_node_list
                 .children
@@ -6008,11 +6008,8 @@ async fn diff_filesystem_directory_walk(
             continue;
         }
 
-        // A leaf node present in state_from but not in state_current, with
-        // no file on disk, is an unstaged add that the user reverted by
-        // removing the file. Discard the node so state_staged matches the
-        // filesystem rather than emitting a Delete change for a node that
-        // shouldn't exist.
+        // Leaf staged but absent from both the commit and disk: a reverted
+        // unstaged add. Discard it rather than emit a Delete.
         let in_current = current_node_list
             .children
             .as_slice()

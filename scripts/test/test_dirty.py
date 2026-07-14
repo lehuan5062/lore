@@ -2815,23 +2815,17 @@ def test_scan_discards_reverted_uncommitted_directory(new_lore_repo):
 
     A directory is staged, then removed from disk before any commit -- a
     "zombie" entry that is in staged state but neither committed nor on disk.
-    Only `--scan` walks the filesystem and can discard it (see
-    lore-revision/src/repository/status.rs: the filesystem diff, and with it
-    the discard logic, only runs `if show_scan`).
+    Only `--scan` walks the filesystem and can discard it (the filesystem
+    diff, and with it the discard logic, runs only `if show_scan`).
 
-    The scan that performs the discard still reports its *own* output from
-    the staged snapshot captured before the discard was persisted (a
-    pre-existing report/persist ordering quirk, not part of what's under
-    test here) -- so the discard is only observable on a subsequent status
-    call. Verify that after one scan runs:
-    - A follow-up status call shows the reverted directory and everything
-      staged under it gone entirely (no add, delete, or other action
-      references it) -- checked with no `type` filter, since the directory
-      node itself (not just the files under it) is what the discard logic
-      operates on
-    - No duplicate entries are reported
-    - An unrelated concurrent change is still correctly reported
-    - A second scan does not resurrect the discarded directory
+    The scan applies the discard to the shared staged state before reporting,
+    so a single `status --scan` reflects it. Verify that the first scan:
+    - Reports neither the reverted directory nor anything staged under it (no
+      `type` filter, since the directory node itself is what the discard logic
+      operates on)
+    - Reports no duplicate entries
+    - Still reports an unrelated concurrent change
+    - Does not resurrect the directory on a second scan
     """
     repo: Lore = new_lore_repo()
 
@@ -2858,10 +2852,6 @@ def test_scan_discards_reverted_uncommitted_directory(new_lore_repo):
     def reverted_dir_entries(entries: list[dict]) -> list[str]:
         paths = [to_posix(e.get("path", "")) for e in entries]
         return [p for p in paths if p == "reverted_dir" or p.startswith("reverted_dir/")]
-
-    # The discard queued by this scan is only observable on a later call
-    # (see docstring), so its own output isn't asserted on.
-    get_status_files(repo, scan=True)
 
     entries = get_status_files(repo, scan=True)
     all_paths = [to_posix(e.get("path", "")) for e in entries]
